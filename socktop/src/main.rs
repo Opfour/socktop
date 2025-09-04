@@ -71,17 +71,17 @@ pub(crate) fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Pars
                 processes_interval_ms = it.next().and_then(|v| v.parse().ok());
             }
             _ if arg.starts_with("--tls-ca=") => {
-                if let Some((_, v)) = arg.split_once('=') {
-                    if !v.is_empty() {
-                        tls_ca = Some(v.to_string());
-                    }
+                if let Some((_, v)) = arg.split_once('=')
+                    && !v.is_empty()
+                {
+                    tls_ca = Some(v.to_string());
                 }
             }
             _ if arg.starts_with("--profile=") => {
-                if let Some((_, v)) = arg.split_once('=') {
-                    if !v.is_empty() {
-                        profile = Some(v.to_string());
-                    }
+                if let Some((_, v)) = arg.split_once('=')
+                    && !v.is_empty()
+                {
+                    profile = Some(v.to_string());
                 }
             }
             _ if arg.starts_with("--metrics-interval-ms=") => {
@@ -416,16 +416,16 @@ fn spawn_demo_agent(port: u16) -> Result<DemoGuard, Box<dyn std::error::Error>> 
     })
 }
 fn find_agent_executable() -> std::path::PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            #[cfg(windows)]
-            let name = "socktop_agent.exe";
-            #[cfg(not(windows))]
-            let name = "socktop_agent";
-            let candidate = parent.join(name);
-            if candidate.exists() {
-                return candidate;
-            }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        #[cfg(windows)]
+        let name = "socktop_agent.exe";
+        #[cfg(not(windows))]
+        let name = "socktop_agent";
+        let candidate = parent.join(name);
+        if candidate.exists() {
+            return candidate;
         }
     }
     std::path::PathBuf::from("socktop_agent")

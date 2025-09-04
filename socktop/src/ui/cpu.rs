@@ -180,28 +180,28 @@ pub fn per_core_handle_scrollbar_mouse(
             }
         }
         MouseEventKind::Drag(MouseButton::Left) => {
-            if let Some(mut d) = drag.take() {
-                if d.active {
-                    let dy = (mouse.row as i32) - (d.start_y as i32);
-                    let new_top = (d.start_top as i32 + dy)
-                        .clamp(0, (track.saturating_sub(thumb_len)) as i32)
-                        as usize;
-                    // Inverse mapping top -> offset
-                    if track > thumb_len {
-                        let denom = track - thumb_len;
-                        offset = if max_off == 0 {
-                            0
-                        } else {
-                            (new_top * max_off + denom / 2) / denom
-                        };
+            if let Some(mut d) = drag.take()
+                && d.active
+            {
+                let dy = (mouse.row as i32) - (d.start_y as i32);
+                let new_top = (d.start_top as i32 + dy)
+                    .clamp(0, (track.saturating_sub(thumb_len)) as i32)
+                    as usize;
+                // Inverse mapping top -> offset
+                if track > thumb_len {
+                    let denom = track - thumb_len;
+                    offset = if max_off == 0 {
+                        0
                     } else {
-                        offset = 0;
-                    }
-                    // Keep dragging
-                    d.start_top = new_top;
-                    d.start_y = mouse.row;
-                    *drag = Some(d);
+                        (new_top * max_off + denom / 2) / denom
+                    };
+                } else {
+                    offset = 0;
                 }
+                // Keep dragging
+                d.start_top = new_top;
+                d.start_y = mouse.row;
+                *drag = Some(d);
             }
         }
         MouseEventKind::Up(MouseButton::Left) => {

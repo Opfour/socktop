@@ -269,16 +269,15 @@ impl App {
                         // Processes table: sort by column on header click
                         if let (Some(mm), Some(p_area)) =
                             (self.last_metrics.as_ref(), self.last_procs_area)
-                        {
-                            if let Some(new_sort) = processes_handle_mouse(
+                            && let Some(new_sort) = processes_handle_mouse(
                                 &mut self.procs_scroll_offset,
                                 &mut self.procs_drag,
                                 m,
                                 p_area,
                                 mm.top_processes.len(),
-                            ) {
-                                self.procs_sort_by = new_sort;
-                            }
+                            )
+                        {
+                            self.procs_sort_by = new_sort;
                         }
                     }
                     Event::Resize(_, _) => {}
@@ -299,21 +298,20 @@ impl App {
                 if self.last_procs_poll.elapsed() >= self.procs_interval {
                     if let Ok(AgentResponse::Processes(procs)) =
                         ws.request(AgentRequest::Processes).await
+                        && let Some(mm) = self.last_metrics.as_mut()
                     {
-                        if let Some(mm) = self.last_metrics.as_mut() {
-                            mm.top_processes = procs.top_processes;
-                            mm.process_count = Some(procs.process_count);
-                        }
+                        mm.top_processes = procs.top_processes;
+                        mm.process_count = Some(procs.process_count);
                     }
                     self.last_procs_poll = Instant::now();
                 }
 
                 // Only poll disks every 5s
                 if self.last_disks_poll.elapsed() >= self.disks_interval {
-                    if let Ok(AgentResponse::Disks(disks)) = ws.request(AgentRequest::Disks).await {
-                        if let Some(mm) = self.last_metrics.as_mut() {
-                            mm.disks = disks;
-                        }
+                    if let Ok(AgentResponse::Disks(disks)) = ws.request(AgentRequest::Disks).await
+                        && let Some(mm) = self.last_metrics.as_mut()
+                    {
+                        mm.disks = disks;
                     }
                     self.last_disks_poll = Instant::now();
                 }
