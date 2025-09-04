@@ -8,7 +8,7 @@ mod state;
 mod types;
 mod ws;
 
-use axum::{http::StatusCode, routing::get, Router};
+use axum::{Router, http::StatusCode, routing::get};
 use std::net::SocketAddr;
 use std::str::FromStr;
 

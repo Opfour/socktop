@@ -1,0 +1,48 @@
+[package]
+name = "socktop_connector"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "WebSocket connector library for socktop agent communication"
+authors = ["Jason Witty <jasonpwitty+socktop@proton.me>"]
+repository = "https://github.com/jasonwitty/socktop"
+readme = "README.md"
+keywords = ["monitoring", "websocket", "metrics", "system"]
+categories = ["network-programming", "development-tools", "system-tools"]
+documentation = "https://docs.rs/socktop_connector"
+
+# docs.rs specific metadata
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+# WebSocket client
+tokio-tungstenite = { workspace = true }
+tokio = { workspace = true }
+futures-util = { workspace = true }
+url = { workspace = true }
+
+# TLS support
+rustls = { version = "0.23", features = ["ring"], optional = true }
+rustls-pemfile = { version = "2.1", optional = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Compression
+flate2 = "1.0"
+
+# Protobuf
+prost = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+
+[build-dependencies]
+prost-build = "0.13"
+
+[features]
+default = ["tls"]
+tls = ["rustls", "rustls-pemfile"]

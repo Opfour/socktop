@@ -1953,6 +1953,7 @@ dependencies = [
  "aws-lc-rs",
  "log",
  "once_cell",
+ "ring",
  "rustls-pki-types",
  "rustls-webpki 0.103.4",
  "subtle",
@@ -2168,20 +2169,14 @@ dependencies = [
  "assert_cmd",
  "crossterm 0.27.0",
  "dirs-next",
- "flate2",
  "futures-util",
- "prost",
- "prost-build",
- "protoc-bin-vendored",
  "ratatui",
- "rustls 0.23.31",
- "rustls-pemfile",
  "serde",
  "serde_json",
+ "socktop_connector",
  "sysinfo",
  "tempfile",
  "tokio",
- "tokio-tungstenite 0.24.0",
  "url",
 ]
 
@@ -2214,6 +2209,24 @@ dependencies = [
  "tonic-build",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "socktop_connector"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "flate2",
+ "futures-util",
+ "prost",
+ "prost-build",
+ "rustls 0.23.31",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite 0.24.0",
+ "url",
 ]
 
 [[package]]

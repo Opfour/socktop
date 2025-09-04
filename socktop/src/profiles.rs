@@ -77,12 +77,13 @@ impl ProfileRequest {
     pub fn resolve(self, pf: &ProfilesFile) -> ResolveProfile {
         // Case: only profile name given -> try load
         if self.url.is_none() && self.profile_name.is_some() {
-            let name = self.profile_name.unwrap();
-            if let Some(entry) = pf.profiles.get(&name) {
-                return ResolveProfile::Loaded(entry.url.clone(), entry.tls_ca.clone());
-            } else {
+            let Some(name) = self.profile_name else {
+                unreachable!("Already checked profile_name.is_some()")
+            };
+            let Some(entry) = pf.profiles.get(&name) else {
                 return ResolveProfile::PromptCreate(name);
-            }
+            };
+            return ResolveProfile::Loaded(entry.url.clone(), entry.tls_ca.clone());
         }
         // Both provided -> direct (maybe later saved by caller)
         if let Some(u) = self.url {

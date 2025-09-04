@@ -5,10 +5,9 @@ mod history;
 mod profiles;
 mod types;
 mod ui;
-mod ws;
 
 use app::App;
-use profiles::{load_profiles, save_profiles, ProfileEntry, ProfileRequest, ResolveProfile};
+use profiles::{ProfileEntry, ProfileRequest, ResolveProfile, load_profiles, save_profiles};
 use std::env;
 use std::io::{self, Write};
 
@@ -39,7 +38,9 @@ pub(crate) fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Pars
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "-h" | "--help" => {
-                return Err(format!("Usage: {prog} [--tls-ca CERT_PEM|-t CERT_PEM] [--verify-hostname] [--profile NAME|-P NAME] [--save] [--demo] [--metrics-interval-ms N] [--processes-interval-ms N] [ws://HOST:PORT/ws]\n"));
+                return Err(format!(
+                    "Usage: {prog} [--tls-ca CERT_PEM|-t CERT_PEM] [--verify-hostname] [--profile NAME|-P NAME] [--save] [--demo] [--metrics-interval-ms N] [--processes-interval-ms N] [ws://HOST:PORT/ws]\n"
+                ));
             }
             "--tls-ca" | "-t" => {
                 tls_ca = it.next();
@@ -97,7 +98,9 @@ pub(crate) fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Pars
                 if url.is_none() {
                     url = Some(arg);
                 } else {
-                    return Err(format!("Unexpected argument. Usage: {prog} [--tls-ca CERT_PEM|-t CERT_PEM] [--verify-hostname] [--profile NAME|-P NAME] [--save] [--demo] [ws://HOST:PORT/ws]"));
+                    return Err(format!(
+                        "Unexpected argument. Usage: {prog} [--tls-ca CERT_PEM|-t CERT_PEM] [--verify-hostname] [--profile NAME|-P NAME] [--save] [--demo] [ws://HOST:PORT/ws]"
+                    ));
                 }
             }
         }
@@ -133,11 +136,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if parsed.demo || matches!(parsed.profile.as_deref(), Some("demo")) {
         return run_demo_mode(parsed.tls_ca.as_deref()).await;
-    }
-
-    if parsed.verify_hostname {
-        // Set env var consumed by ws::connect logic
-        std::env::set_var("SOCKTOP_VERIFY_NAME", "1");
     }
 
     let profiles_file = load_profiles();
@@ -239,7 +237,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut line = String::new();
             if io::stdin().read_line(&mut line).is_ok() {
                 if let Ok(idx) = line.trim().parse::<usize>() {
-                    if idx >= 1 && idx <= names.len() {
+                    if (1..=names.len()).contains(&idx) {
                         let name = &names[idx - 1];
                         if name == "demo" {
                             return run_demo_mode(parsed.tls_ca.as_deref()).await;
@@ -297,7 +295,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if profiles_mut.profiles.is_empty() && parsed.url.is_none() {
                 eprintln!("Welcome to socktop!");
                 eprintln!("It looks like this is your first time running the application.");
-                eprintln!("You can connect to a socktop_agent instance to monitor system metrics and processes.");
+                eprintln!(
+                    "You can connect to a socktop_agent instance to monitor system metrics and processes."
+                );
                 eprintln!("If you don't have an agent running, you can try the demo mode.");
                 if prompt_yes_no("Would you like to start the demo mode now? [Y/n]: ") {
                     return run_demo_mode(parsed.tls_ca.as_deref()).await;
@@ -318,7 +318,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if parsed.dry_run {
         return Ok(());
     }
-    app.run(&url, tls_ca.as_deref()).await
+    app.run(&url, tls_ca.as_deref(), parsed.verify_hostname)
+        .await
 }
 
 fn prompt_yes_no(prompt: &str) -> bool {
@@ -382,7 +383,8 @@ async fn run_demo_mode(_tls_ca: Option<&str>) -> Result<(), Box<dyn std::error::
     let url = format!("ws://127.0.0.1:{port}/ws");
     let child = spawn_demo_agent(port)?;
     let mut app = App::new();
-    tokio::select! { res=app.run(&url,None)=>{ drop(child); res } _=tokio::signal::ctrl_c()=>{ drop(child); Ok(()) } }
+    // Demo mode connects to localhost, so disable hostname verification
+    tokio::select! { res=app.run(&url,None,false)=>{ drop(child); res } _=tokio::signal::ctrl_c()=>{ drop(child); Ok(()) } }
 }
 struct DemoGuard {
     port: u16,

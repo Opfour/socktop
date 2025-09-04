@@ -5,7 +5,7 @@ use axum::{
     extract::{Query, State, WebSocketUpgrade},
     response::Response,
 };
-use flate2::{write::GzEncoder, Compression};
+use flate2::{Compression, write::GzEncoder};
 use futures_util::StreamExt;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;

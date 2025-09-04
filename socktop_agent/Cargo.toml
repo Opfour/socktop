@@ -2,8 +2,8 @@
 name = "socktop_agent"
 version = "1.40.67"
 authors = ["Jason Witty <jasonpwitty+socktop@proton.me>"]
-description = "Remote system monitor over WebSocket, TUI like top"
-edition = "2021"
+description = "Socktop agent daemon. Serves host metrics over WebSocket."
+edition = "2024"
 license = "MIT"
 readme = "README.md"
 

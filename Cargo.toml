@@ -2,7 +2,8 @@
 resolver = "2"
 members = [
     "socktop",
-    "socktop_agent"
+    "socktop_agent",
+    "socktop_connector"
 ]
 
 [workspace.dependencies]
@@ -26,13 +27,19 @@ sysinfo = "0.37"
 ratatui = "0.28"
 crossterm = "0.27"
 
-
 # web server (remote-agent)
 axum = { version = "0.7", features = ["ws"] }
 
 # protobuf
 prost = "0.13"
 dirs-next = "2"
+
+# compression
+flate2 = "1.0"
+
+# TLS
+rustls = { version = "0.23", features = ["ring"] }
+rustls-pemfile = "2.1"
 
 [profile.release]
 # Favor smaller, simpler binaries with good runtime perf
