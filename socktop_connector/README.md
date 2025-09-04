@@ -31,8 +31,16 @@ Add this to your `Cargo.toml`:
 ```toml
 [dependencies]
 socktop_connector = "0.1"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "time", "macros"] }
 ```
+
+**WASM Compatibility:** For WASM environments, use minimal features (single-threaded runtime):
+```toml
+[dependencies]
+socktop_connector = "0.1"
+tokio = { version = "1", features = ["rt", "time", "macros"] }
+```
+Note: TLS features (`wss://` connections) are not available in WASM environments.
 
 ### Basic Usage
 
@@ -246,6 +254,49 @@ The library provides flexible configuration through the `ConnectorConfig` builde
   - `false`: Skip hostname verification (useful for localhost or IP-based connections)
 
 **Note**: Hostname verification only applies to TLS connections (`wss://`). Non-TLS connections (`ws://`) don't use certificates, so hostname verification is not applicable.
+
+## WASM Support
+
+`socktop_connector` supports WebAssembly (WASM) environments with some limitations:
+
+### Supported Features
+- Non-TLS WebSocket connections (`ws://`)  
+- All core functionality (metrics, processes, disks)
+- Continuous monitoring examples
+
+### WASM Configuration
+```toml
+[dependencies]
+socktop_connector = "0.1"
+tokio = { version = "1", features = ["rt", "time", "macros"] }
+# Note: "net" feature not needed in WASM - WebSocket connections use browser APIs
+```
+
+### Limitations
+- **No TLS support**: `wss://` connections are not available
+- **No certificate pinning**: TLS-related features are disabled
+- **Browser WebSocket API**: Uses browser's native WebSocket implementation
+
+### WASM Example
+```rust
+use socktop_connector::{connect_to_socktop_agent, AgentRequest, AgentResponse};
+
+// Use current_thread runtime for WASM compatibility
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut connector = connect_to_socktop_agent("ws://localhost:3000/ws").await?;
+    
+    match connector.request(AgentRequest::Metrics).await? {
+        AgentResponse::Metrics(metrics) => {
+            // In WASM, you might log to browser console instead of println!
+            web_sys::console::log_1(&format!("CPU: {}%", metrics.cpu_total).into());
+        }
+        _ => unreachable!(),
+    }
+    
+    Ok(())
+}
+```
 
 ## Security Considerations
 
