@@ -104,7 +104,7 @@
 //!                 let total_rx: u64 = metrics.networks.iter().map(|n| n.received).sum();
 //!                 let total_tx: u64 = metrics.networks.iter().map(|n| n.transmitted).sum();
 //!                 
-//!                 println!("CPU: {:.1}%, Memory: {:.1}%, Network: ↓{} ↑{}", 
+//!                 println!("CPU: {:.1}%, Memory: {:.1}%, Network: ↓{} ↑{}",
 //!                     metrics.cpu_total,
 //!                     (metrics.mem_used as f64 / metrics.mem_total as f64) * 100.0,
 //!                     format_bytes(total_rx),
