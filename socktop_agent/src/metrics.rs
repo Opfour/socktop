@@ -74,11 +74,11 @@ fn cached_temp() -> Option<f32> {
 }
 
 fn set_temp(v: Option<f32>) {
-    if let Some(lock) = TEMP.get() {
-        if let Ok(mut c) = lock.lock() {
-            c.v = v;
-            c.at = Some(Instant::now());
-        }
+    if let Some(lock) = TEMP.get()
+        && let Ok(mut c) = lock.lock()
+    {
+        c.v = v;
+        c.at = Some(Instant::now());
     }
 }
 
@@ -98,11 +98,11 @@ fn cached_gpus() -> Option<Vec<crate::gpu::GpuMetrics>> {
 }
 
 fn set_gpus(v: Option<Vec<crate::gpu::GpuMetrics>>) {
-    if let Some(lock) = GPUC.get() {
-        if let Ok(mut c) = lock.lock() {
-            c.v = v.clone();
-            c.at = Some(Instant::now());
-        }
+    if let Some(lock) = GPUC.get()
+        && let Ok(mut c) = lock.lock()
+    {
+        c.v = v.clone();
+        c.at = Some(Instant::now());
     }
 }
 
@@ -116,10 +116,10 @@ pub async fn collect_fast_metrics(state: &AppState) -> Metrics {
     let ttl = StdDuration::from_millis(ttl_ms);
     {
         let cache = state.cache_metrics.lock().await;
-        if cache.is_fresh(ttl) {
-            if let Some(c) = cache.get() {
-                return c.clone();
-            }
+        if cache.is_fresh(ttl)
+            && let Some(c) = cache.get()
+        {
+            return c.clone();
         }
     }
     let mut sys = state.sys.lock().await;
@@ -278,10 +278,10 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
     let ttl = StdDuration::from_millis(ttl_ms);
     {
         let cache = state.cache_disks.lock().await;
-        if cache.is_fresh(ttl) {
-            if let Some(v) = cache.get() {
-                return v.clone();
-            }
+        if cache.is_fresh(ttl)
+            && let Some(v) = cache.get()
+        {
+            return v.clone();
         }
     }
     let mut disks_list = state.disks.lock().await;
@@ -347,10 +347,10 @@ pub async fn collect_processes_all(state: &AppState) -> ProcessesPayload {
     let ttl = StdDuration::from_millis(ttl_ms);
     {
         let cache = state.cache_processes.lock().await;
-        if cache.is_fresh(ttl) {
-            if let Some(c) = cache.get() {
-                return c.clone();
-            }
+        if cache.is_fresh(ttl)
+            && let Some(c) = cache.get()
+        {
+            return c.clone();
         }
     }
     // Reuse shared System to avoid reallocation; refresh processes fully.

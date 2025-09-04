@@ -40,12 +40,12 @@ pub async fn ws_handler(
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
     // optional auth
-    if let Some(expected) = state.auth_token.as_ref() {
-        if q.get("token") != Some(expected) {
-            return ws.on_upgrade(|socket| async move {
-                let _ = socket.close().await;
-            });
-        }
+    if let Some(expected) = state.auth_token.as_ref()
+        && q.get("token") != Some(expected)
+    {
+        return ws.on_upgrade(|socket| async move {
+            let _ = socket.close().await;
+        });
     }
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
