@@ -41,7 +41,7 @@ prost = { workspace = true }
 anyhow = { workspace = true }
 
 [build-dependencies]
-prost-build = "0.13"
+prost-build = { version = "0.13", features = ["vendored"] }
 
 [features]
 default = ["tls"]
