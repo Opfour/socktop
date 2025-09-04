@@ -119,6 +119,107 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## Continuous Updates
+
+The socktop agent provides real-time system metrics. Each request returns the current snapshot, but you can implement continuous monitoring by making requests in a loop:
+
+```rust
+use socktop_connector::{connect_to_socktop_agent, AgentRequest, AgentResponse};
+use tokio::time::{sleep, Duration};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut connector = connect_to_socktop_agent("ws://localhost:3000/ws").await?;
+    
+    // Monitor system metrics every 2 seconds
+    loop {
+        match connector.request(AgentRequest::Metrics).await {
+            Ok(AgentResponse::Metrics(metrics)) => {
+                // Calculate total network activity across all interfaces
+                let total_rx: u64 = metrics.networks.iter().map(|n| n.received).sum();
+                let total_tx: u64 = metrics.networks.iter().map(|n| n.transmitted).sum();
+                
+                println!("CPU: {:.1}%, Memory: {:.1}%, Network: ↓{} ↑{}", 
+                    metrics.cpu_total,
+                    (metrics.mem_used as f64 / metrics.mem_total as f64) * 100.0,
+                    format_bytes(total_rx),
+                    format_bytes(total_tx)
+                );
+            }
+            Err(e) => {
+                eprintln!("Error getting metrics: {}", e);
+                break;
+            }
+            _ => unreachable!(),
+        }
+        
+        sleep(Duration::from_secs(2)).await;
+    }
+    
+    Ok(())
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB"];
+    let mut size = bytes as f64;
+    let mut unit_index = 0;
+    
+    while size >= 1024.0 && unit_index < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit_index += 1;
+    }
+    
+    format!("{:.1}{}", size, UNITS[unit_index])
+}
+```
+
+### Understanding Data Freshness
+
+The socktop agent implements intelligent caching to avoid overwhelming the system:
+
+- **Metrics**: Cached for ~250ms by default (fast-changing data like CPU, memory)
+- **Processes**: Cached for ~1500ms by default (moderately changing data)  
+- **Disks**: Cached for ~1000ms by default (slowly changing data)
+
+This means:
+
+1. **Multiple rapid requests** for the same data type will return cached results
+2. **Different data types** have independent cache timers
+3. **Fresh data** is automatically retrieved when cache expires
+
+```rust
+use socktop_connector::{connect_to_socktop_agent, AgentRequest, AgentResponse};
+use tokio::time::{sleep, Duration};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut connector = connect_to_socktop_agent("ws://localhost:3000/ws").await?;
+    
+    // This demonstrates cache behavior
+    println!("Requesting metrics twice quickly...");
+    
+    // First request - fresh data from system
+    let start = std::time::Instant::now();
+    connector.request(AgentRequest::Metrics).await?;
+    println!("First request took: {:?}", start.elapsed());
+    
+    // Second request immediately - cached data  
+    let start = std::time::Instant::now();
+    connector.request(AgentRequest::Metrics).await?;
+    println!("Second request took: {:?}", start.elapsed()); // Much faster!
+    
+    // Wait for cache to expire, then request again
+    sleep(Duration::from_millis(300)).await;
+    let start = std::time::Instant::now();
+    connector.request(AgentRequest::Metrics).await?;
+    println!("Third request (after cache expiry): {:?}", start.elapsed());
+    
+    Ok(())
+}
+```
+
+The WebSocket connection remains open between requests, providing efficient real-time monitoring without connection overhead.
+
 ## Request Types
 
 The library supports three types of requests:

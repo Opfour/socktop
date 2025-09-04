@@ -82,6 +82,61 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! # Continuous Monitoring
+//!
+//! For real-time system monitoring, you can make requests in a loop. The agent
+//! implements intelligent caching to avoid overwhelming the system:
+//!
+//! ```no_run
+//! use socktop_connector::{connect_to_socktop_agent, AgentRequest, AgentResponse};
+//! use tokio::time::{sleep, Duration};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let mut connector = connect_to_socktop_agent("ws://localhost:3000/ws").await?;
+//!     
+//!     // Monitor system metrics every 2 seconds
+//!     loop {
+//!         match connector.request(AgentRequest::Metrics).await {
+//!             Ok(AgentResponse::Metrics(metrics)) => {
+//!                 // Calculate total network activity across all interfaces
+//!                 let total_rx: u64 = metrics.networks.iter().map(|n| n.received).sum();
+//!                 let total_tx: u64 = metrics.networks.iter().map(|n| n.transmitted).sum();
+//!                 
+//!                 println!("CPU: {:.1}%, Memory: {:.1}%, Network: ↓{} ↑{}", 
+//!                     metrics.cpu_total,
+//!                     (metrics.mem_used as f64 / metrics.mem_total as f64) * 100.0,
+//!                     format_bytes(total_rx),
+//!                     format_bytes(total_tx)
+//!                 );
+//!             }
+//!             Err(e) => {
+//!                 eprintln!("Connection error: {}", e);
+//!                 break;
+//!             }
+//!             _ => unreachable!(),
+//!         }
+//!         
+//!         sleep(Duration::from_secs(2)).await;
+//!     }
+//!     
+//!     Ok(())
+//! }
+//!
+//! fn format_bytes(bytes: u64) -> String {
+//!     const UNITS: &[&str] = &["B", "KB", "MB", "GB"];
+//!     let mut size = bytes as f64;
+//!     let mut unit_index = 0;
+//!     
+//!     while size >= 1024.0 && unit_index < UNITS.len() - 1 {
+//!         size /= 1024.0;
+//!         unit_index += 1;
+//!     }
+//!     
+//!     format!("{:.1}{}", size, UNITS[unit_index])
+//! }
+//! ```
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
