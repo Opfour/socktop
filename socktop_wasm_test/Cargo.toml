@@ -1,0 +1,32 @@
+[package]
+name = "socktop_wasm_test"
+version = "0.1.0"
+edition = "2021"
+
+# Make this a standalone package, not part of the parent workspace
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Only include the types and configuration, not the networking
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
+
+# For manual protobuf handling if needed
+prost = "0.13"
+
+# Enable JS feature for WASM random number generation
+[dependencies.getrandom] 
+version = "0.2"
+features = ["js"]
+
+# WASM-specific dependencies
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "console",
+]

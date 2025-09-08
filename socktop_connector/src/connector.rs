@@ -3,19 +3,28 @@
 use flate2::bufread::GzDecoder;
 use futures_util::{SinkExt, StreamExt};
 use prost::Message as _;
-use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-use rustls::{ClientConfig, RootCertStore};
-use rustls::{DigitallySignedStruct, SignatureScheme};
-use rustls_pemfile::Item;
 use std::io::Read;
-use std::{fs::File, io::BufReader, sync::Arc};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
-    Connector, MaybeTlsStream, WebSocketStream, connect_async, connect_async_tls_with_config,
+    MaybeTlsStream, WebSocketStream, connect_async,
     tungstenite::Message, tungstenite::client::IntoClientRequest,
 };
 use url::Url;
+
+#[cfg(feature = "tls")]
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+#[cfg(feature = "tls")]
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+#[cfg(feature = "tls")]
+use rustls::{ClientConfig, RootCertStore};
+#[cfg(feature = "tls")]
+use rustls::{DigitallySignedStruct, SignatureScheme};
+#[cfg(feature = "tls")]
+use rustls_pemfile::Item;
+#[cfg(feature = "tls")]
+use std::{fs::File, io::BufReader, sync::Arc};
+#[cfg(feature = "tls")]
+use tokio_tungstenite::{Connector, connect_async_tls_with_config};
 
 use crate::error::{ConnectorError, Result};
 use crate::types::{AgentRequest, AgentResponse, DiskInfo, Metrics, ProcessInfo, ProcessesPayload};

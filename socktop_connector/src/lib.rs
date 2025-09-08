@@ -146,8 +146,11 @@ pub mod types;
 
 pub use connector::{
     ConnectorConfig, SocktopConnector, WsStream, connect_to_socktop_agent,
-    connect_to_socktop_agent_with_config, connect_to_socktop_agent_with_tls,
+    connect_to_socktop_agent_with_config,
 };
+
+#[cfg(feature = "tls")]
+pub use connector::connect_to_socktop_agent_with_tls;
 pub use error::{ConnectorError, Result};
 pub use types::{
     AgentRequest, AgentResponse, DiskInfo, GpuInfo, Metrics, NetworkInfo, ProcessInfo,
