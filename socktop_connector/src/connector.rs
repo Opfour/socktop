@@ -6,8 +6,8 @@ use prost::Message as _;
 use std::io::Read;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
-    MaybeTlsStream, WebSocketStream, connect_async,
-    tungstenite::Message, tungstenite::client::IntoClientRequest,
+    MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message,
+    tungstenite::client::IntoClientRequest,
 };
 use url::Url;
 
