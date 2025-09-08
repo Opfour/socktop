@@ -2213,9 +2213,8 @@ dependencies = [
 
 [[package]]
 name = "socktop_connector"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
- "anyhow",
  "flate2",
  "futures-util",
  "prost",
@@ -2225,6 +2224,7 @@ dependencies = [
  "rustls-pemfile",
  "serde",
  "serde_json",
+ "thiserror 2.0.12",
  "tokio",
  "tokio-tungstenite 0.24.0",
  "url",

@@ -207,7 +207,7 @@ socktop -t /path/to/cert.pem wss://HOST:8443/ws
 
 Intervals (client-driven):
 - Fast metrics: ~500 ms
-- Processes: ~2 s (top 50)
+- Processes: ~2 s 
 - Disks: ~5 s
 
 The agent stays idle unless queried. When queried, it collects just what’s needed.

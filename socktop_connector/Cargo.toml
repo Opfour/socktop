@@ -1,6 +1,6 @@
 [package]
 name = "socktop_connector"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
 license = "MIT"
 description = "WebSocket connector library for socktop agent communication"
@@ -38,7 +38,7 @@ flate2 = "1.0"
 prost = { workspace = true }
 
 # Error handling
-anyhow = { workspace = true }
+thiserror = "2.0"
 
 [build-dependencies]
 prost-build = "0.13"

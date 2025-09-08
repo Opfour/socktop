@@ -141,16 +141,15 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub mod connector;
+pub mod error;
 pub mod types;
 
 pub use connector::{
     ConnectorConfig, SocktopConnector, WsStream, connect_to_socktop_agent,
-    connect_to_socktop_agent_with_tls,
+    connect_to_socktop_agent_with_config, connect_to_socktop_agent_with_tls,
 };
+pub use error::{ConnectorError, Result};
 pub use types::{
     AgentRequest, AgentResponse, DiskInfo, GpuInfo, Metrics, NetworkInfo, ProcessInfo,
     ProcessesPayload,
 };
-
-/// Re-export commonly used error type
-pub use anyhow::Error;

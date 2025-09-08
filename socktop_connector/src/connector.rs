@@ -17,6 +17,7 @@ use tokio_tungstenite::{
 };
 use url::Url;
 
+use crate::error::{ConnectorError, Result};
 use crate::types::{AgentRequest, AgentResponse, DiskInfo, Metrics, ProcessInfo, ProcessesPayload};
 
 #[cfg(feature = "tls")]
@@ -41,6 +42,8 @@ pub struct ConnectorConfig {
     pub url: String,
     pub tls_ca_path: Option<String>,
     pub verify_hostname: bool,
+    pub ws_protocols: Option<Vec<String>>,
+    pub ws_version: Option<String>,
 }
 
 impl ConnectorConfig {
@@ -49,6 +52,8 @@ impl ConnectorConfig {
             url: url.into(),
             tls_ca_path: None,
             verify_hostname: false,
+            ws_protocols: None,
+            ws_version: None,
         }
     }
 
@@ -59,6 +64,18 @@ impl ConnectorConfig {
 
     pub fn with_hostname_verification(mut self, verify: bool) -> Self {
         self.verify_hostname = verify;
+        self
+    }
+
+    /// Set WebSocket sub-protocols to negotiate
+    pub fn with_protocols(mut self, protocols: Vec<String>) -> Self {
+        self.ws_protocols = Some(protocols);
+        self
+    }
+
+    /// Set WebSocket protocol version (default is "13")
+    pub fn with_version(mut self, version: impl Into<String>) -> Self {
+        self.ws_version = Some(version.into());
         self
     }
 }
@@ -79,39 +96,33 @@ impl SocktopConnector {
     }
 
     /// Connect to the agent
-    pub async fn connect(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let stream = connect_to_agent(
-            &self.config.url,
-            self.config.tls_ca_path.as_deref(),
-            self.config.verify_hostname,
-        )
-        .await?;
+    pub async fn connect(&mut self) -> Result<()> {
+        let stream = connect_to_agent(&self.config).await?;
         self.stream = Some(stream);
         Ok(())
     }
 
     /// Send a request to the agent and get the response
-    pub async fn request(
-        &mut self,
-        request: AgentRequest,
-    ) -> Result<AgentResponse, Box<dyn std::error::Error>> {
-        let stream = self.stream.as_mut().ok_or("Not connected")?;
+    pub async fn request(&mut self, request: AgentRequest) -> Result<AgentResponse> {
+        let stream = self.stream.as_mut().ok_or(ConnectorError::NotConnected)?;
 
         match request {
             AgentRequest::Metrics => {
                 let metrics = request_metrics(stream)
                     .await
-                    .ok_or("Failed to get metrics")?;
+                    .ok_or_else(|| ConnectorError::invalid_response("Failed to get metrics"))?;
                 Ok(AgentResponse::Metrics(metrics))
             }
             AgentRequest::Disks => {
-                let disks = request_disks(stream).await.ok_or("Failed to get disks")?;
+                let disks = request_disks(stream)
+                    .await
+                    .ok_or_else(|| ConnectorError::invalid_response("Failed to get disks"))?;
                 Ok(AgentResponse::Disks(disks))
             }
             AgentRequest::Processes => {
                 let processes = request_processes(stream)
                     .await
-                    .ok_or("Failed to get processes")?;
+                    .ok_or_else(|| ConnectorError::invalid_response("Failed to get processes"))?;
                 Ok(AgentResponse::Processes(processes))
             }
         }
@@ -123,7 +134,7 @@ impl SocktopConnector {
     }
 
     /// Disconnect from the agent
-    pub async fn disconnect(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn disconnect(&mut self) -> Result<()> {
         if let Some(mut stream) = self.stream.take() {
             let _ = stream.close(None).await;
         }
@@ -132,32 +143,54 @@ impl SocktopConnector {
 }
 
 // Connect to the agent and return the WS stream
-async fn connect_to_agent(
-    url: &str,
-    tls_ca: Option<&str>,
-    verify_hostname: bool,
-) -> Result<WsStream, Box<dyn std::error::Error>> {
+async fn connect_to_agent(config: &ConnectorConfig) -> Result<WsStream> {
     #[cfg(feature = "tls")]
     ensure_crypto_provider();
 
-    let mut u = Url::parse(url)?;
-    if let Some(ca_path) = tls_ca {
+    let mut u = Url::parse(&config.url)?;
+    if let Some(ca_path) = &config.tls_ca_path {
         if u.scheme() == "ws" {
             let _ = u.set_scheme("wss");
         }
-        return connect_with_ca(u.as_str(), ca_path, verify_hostname).await;
+        return connect_with_ca_and_config(u.as_str(), ca_path, config).await;
     }
     // No TLS - hostname verification is not applicable
-    let (ws, _) = connect_async(u.as_str()).await?;
+    connect_without_ca_and_config(u.as_str(), config).await
+}
+
+async fn connect_without_ca_and_config(url: &str, config: &ConnectorConfig) -> Result<WsStream> {
+    let mut req = url.into_client_request()?;
+
+    // Apply WebSocket protocol configuration
+    if let Some(version) = &config.ws_version {
+        req.headers_mut().insert(
+            "Sec-WebSocket-Version",
+            version
+                .parse()
+                .map_err(|_| ConnectorError::protocol_error("Invalid WebSocket version"))?,
+        );
+    }
+
+    if let Some(protocols) = &config.ws_protocols {
+        let protocols_str = protocols.join(", ");
+        req.headers_mut().insert(
+            "Sec-WebSocket-Protocol",
+            protocols_str
+                .parse()
+                .map_err(|_| ConnectorError::protocol_error("Invalid WebSocket protocols"))?,
+        );
+    }
+
+    let (ws, _) = connect_async(req).await?;
     Ok(ws)
 }
 
 #[cfg(feature = "tls")]
-async fn connect_with_ca(
+async fn connect_with_ca_and_config(
     url: &str,
     ca_path: &str,
-    verify_hostname: bool,
-) -> Result<WsStream, Box<dyn std::error::Error>> {
+    config: &ConnectorConfig,
+) -> Result<WsStream> {
     // Initialize the crypto provider for rustls
     let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -175,8 +208,29 @@ async fn connect_with_ca(
         .with_root_certificates(root)
         .with_no_client_auth();
 
-    let req = url.into_client_request()?;
-    if !verify_hostname {
+    let mut req = url.into_client_request()?;
+
+    // Apply WebSocket protocol configuration
+    if let Some(version) = &config.ws_version {
+        req.headers_mut().insert(
+            "Sec-WebSocket-Version",
+            version
+                .parse()
+                .map_err(|_| ConnectorError::protocol_error("Invalid WebSocket version"))?,
+        );
+    }
+
+    if let Some(protocols) = &config.ws_protocols {
+        let protocols_str = protocols.join(", ");
+        req.headers_mut().insert(
+            "Sec-WebSocket-Protocol",
+            protocols_str
+                .parse()
+                .map_err(|_| ConnectorError::protocol_error("Invalid WebSocket protocols"))?,
+        );
+    }
+
+    if !config.verify_hostname {
         #[derive(Debug)]
         struct NoVerify;
         impl ServerCertVerifier for NoVerify {
@@ -187,7 +241,7 @@ async fn connect_with_ca(
                 _server_name: &ServerName,
                 _ocsp_response: &[u8],
                 _now: UnixTime,
-            ) -> Result<ServerCertVerified, rustls::Error> {
+            ) -> std::result::Result<ServerCertVerified, rustls::Error> {
                 Ok(ServerCertVerified::assertion())
             }
             fn verify_tls12_signature(
@@ -195,7 +249,7 @@ async fn connect_with_ca(
                 _message: &[u8],
                 _cert: &CertificateDer<'_>,
                 _dss: &DigitallySignedStruct,
-            ) -> Result<HandshakeSignatureValid, rustls::Error> {
+            ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
                 Ok(HandshakeSignatureValid::assertion())
             }
             fn verify_tls13_signature(
@@ -203,7 +257,7 @@ async fn connect_with_ca(
                 _message: &[u8],
                 _cert: &CertificateDer<'_>,
                 _dss: &DigitallySignedStruct,
-            ) -> Result<HandshakeSignatureValid, rustls::Error> {
+            ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
                 Ok(HandshakeSignatureValid::assertion())
             }
             fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
@@ -220,18 +274,26 @@ async fn connect_with_ca(
         );
     }
     let cfg = Arc::new(cfg);
-    let (ws, _) =
-        connect_async_tls_with_config(req, None, verify_hostname, Some(Connector::Rustls(cfg)))
-            .await?;
+    let (ws, _) = connect_async_tls_with_config(
+        req,
+        None,
+        config.verify_hostname,
+        Some(Connector::Rustls(cfg)),
+    )
+    .await?;
     Ok(ws)
 }
 
 #[cfg(not(feature = "tls"))]
-async fn connect_with_ca(
+async fn connect_with_ca_and_config(
     _url: &str,
     _ca_path: &str,
-) -> Result<WsStream, Box<dyn std::error::Error>> {
-    Err("TLS support not compiled in".into())
+    _config: &ConnectorConfig,
+) -> Result<WsStream> {
+    Err(ConnectorError::tls_error(
+        "TLS support not compiled in",
+        std::io::Error::new(std::io::ErrorKind::Unsupported, "TLS not available"),
+    ))
 }
 
 // Send a "get_metrics" request and await a single JSON reply
@@ -334,9 +396,7 @@ fn is_gzip(bytes: &[u8]) -> bool {
 /// certificate involved, hostname verification is not applicable.
 ///
 /// For TLS connections with certificate pinning, use `connect_to_socktop_agent_with_tls()`.
-pub async fn connect_to_socktop_agent(
-    url: impl Into<String>,
-) -> Result<SocktopConnector, Box<dyn std::error::Error>> {
+pub async fn connect_to_socktop_agent(url: impl Into<String>) -> Result<SocktopConnector> {
     let config = ConnectorConfig::new(url);
     let mut connector = SocktopConnector::new(config);
     connector.connect().await?;
@@ -354,10 +414,49 @@ pub async fn connect_to_socktop_agent_with_tls(
     url: impl Into<String>,
     ca_path: impl Into<String>,
     verify_hostname: bool,
-) -> Result<SocktopConnector, Box<dyn std::error::Error>> {
+) -> Result<SocktopConnector> {
     let config = ConnectorConfig::new(url)
         .with_tls_ca(ca_path)
         .with_hostname_verification(verify_hostname);
+    let mut connector = SocktopConnector::new(config);
+    connector.connect().await?;
+    Ok(connector)
+}
+
+/// Convenience function to create a connector with custom WebSocket protocol configuration.
+///
+/// This function allows you to specify WebSocket protocol version and sub-protocols.
+/// Most users should use the simpler `connect_to_socktop_agent()` function instead.
+///
+/// # Example
+/// ```no_run
+/// use socktop_connector::connect_to_socktop_agent_with_config;
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let connector = connect_to_socktop_agent_with_config(
+///     "ws://localhost:3000/ws",
+///     Some(vec!["socktop".to_string()]), // WebSocket sub-protocols
+///     Some("13".to_string()), // WebSocket version (13 is standard)
+/// ).await?;
+/// # Ok(())
+/// # }
+/// ```
+pub async fn connect_to_socktop_agent_with_config(
+    url: impl Into<String>,
+    protocols: Option<Vec<String>>,
+    version: Option<String>,
+) -> Result<SocktopConnector> {
+    let mut config = ConnectorConfig::new(url);
+
+    if let Some(protocols) = protocols {
+        config = config.with_protocols(protocols);
+    }
+
+    if let Some(version) = version {
+        config = config.with_version(version);
+    }
+
     let mut connector = SocktopConnector::new(config);
     connector.connect().await?;
     Ok(connector)
