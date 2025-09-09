@@ -39,6 +39,20 @@
     
     <p>This test demonstrates that <code>socktop_connector</code> works properly in WebAssembly with real WebSocket connections.</p>
     
+    <div style="margin: 20px 0; padding: 15px; background: #f9f9f9; border-radius: 4px;">
+        <label for="serverUrl" style="display: block; font-weight: bold; margin-bottom: 5px;">
+            🌐 WebSocket Server URL:
+        </label>
+        <input 
+            type="text" 
+            id="serverUrl" 
+            value="ws://localhost:3000/ws" 
+            style="width: 300px; padding: 8px; margin-right: 10px; border: 1px solid #ccc; border-radius: 4px;"
+            placeholder="ws://your-server:port/ws"
+        />
+        <small style="color: #666;">Edit if your socktop_agent is running on a different host/port</small>
+    </div>
+    
     <div>
         <button onclick="runTest()">Run Test</button>
         <button onclick="clearLog()">Clear Log</button>
@@ -46,22 +60,6 @@
     
     <h2>Test Output:</h2>
     <div id="log" class="log">Click "Run Test" to start...\n</div>
-
-    <h2>Test Details:</h2>
-    <ul>
-        <li>✅ Uses real <code>socktop_connector::SocktopConnector</code> API</li>
-        <li>✅ Makes actual WebSocket connections to socktop agents</li>
-        <li>✅ Calls real API methods: <code>get_metrics()</code>, <code>get_disks()</code>, <code>get_processes()</code></li>
-        <li>✅ No fake data or browser-specific workarounds</li>
-        <li>✅ Full end-to-end test of socktop_connector in WASM</li>
-    </ul>
-
-    <p><strong>Prerequisites:</strong></p>
-    <ul>
-        <li>✅ socktop_agent running on localhost:3000</li>
-        <li>✅ WebSocket connection allowed (no CORS issues)</li>
-        <li>✅ WASM module properly compiled and loaded</li>
-    </ul>
 
     <script type="module">
         import init, { test_socktop_connector } from './pkg/socktop_wasm_test.js';
@@ -112,14 +110,22 @@
                 return;
             }
             
+            // Get the server URL from the input field
+            const serverUrl = document.getElementById('serverUrl').value.trim();
+            if (!serverUrl) {
+                console.log('❌ Server URL cannot be empty');
+                return;
+            }
+            
             try {
                 console.log('');
                 console.log('='.repeat(60));
                 console.log('🚀 Starting socktop_connector WASM test...');
+                console.log('🌐 Server URL: ' + serverUrl);
                 console.log('='.repeat(60));
                 console.log('');
                 
-                test_socktop_connector();
+                test_socktop_connector(serverUrl);
             } catch (error) {
                 console.log('❌ Error running test:', error);
                 console.log('🔍 Error details:', error.stack);

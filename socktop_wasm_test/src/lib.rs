@@ -16,13 +16,17 @@ macro_rules! console_log {
 
 // This is the main entry point called from JavaScript
 #[wasm_bindgen]
-pub fn test_socktop_connector() {
+pub fn test_socktop_connector(server_url: Option<String>) {
     console_error_panic_hook::set_once();
     
+    // Use provided URL or default
+    let url = server_url.unwrap_or_else(|| "ws://localhost:3000/ws".to_string());
+    
     console_log!("🦀 Starting WASM connector test...");
+    console_log!("🌐 Connecting to: {}", url);
     
     // Test 1: Create configuration
-    let config = ConnectorConfig::new("ws://localhost:3000/ws");
+    let config = ConnectorConfig::new(&url);
     console_log!("✅ Config created: {}", config.url);
     
     // Test 2: Test configuration methods

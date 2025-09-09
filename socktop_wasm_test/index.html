@@ -23,6 +23,16 @@
         }
         button:hover { background: #0757c7; }
         button:disabled { background: #ccc; cursor: not-allowed; }
+        .server-input { 
+            margin: 10px 0; 
+            padding: 8px; 
+            width: 300px; 
+            border: 1px solid #ddd; 
+            border-radius: 4px; 
+            font-family: monospace; 
+        }
+        .input-group { margin: 15px 0; }
+        .input-group label { display: block; margin-bottom: 5px; font-weight: bold; }
         #output { 
             border: 1px solid #ddd; 
             border-radius: 4px; 
@@ -41,6 +51,12 @@
         <div class="status">
             <p><strong>Test Purpose:</strong> Verify socktop_connector works in WebAssembly without TLS dependencies</p>
             <p><strong>Status:</strong> <span id="status">Loading WASM module...</span></p>
+        </div>
+        
+        <div class="input-group">
+            <label for="server-url">Server URL:</label>
+            <input type="text" id="server-url" class="server-input" value="ws://localhost:3000/ws" 
+                   placeholder="ws://localhost:3000/ws">
         </div>
         
         <button id="test-btn" disabled>Run WASM Test</button>
@@ -111,9 +127,11 @@
                 
                 testBtn.onclick = () => {
                     testBtn.disabled = true;
+                    const serverUrl = document.getElementById('server-url').value.trim();
                     addLog('=== Starting WASM Test ===', 'info');
+                    addLog(`🌐 Using server: ${serverUrl}`, 'info');
                     try {
-                        test_socktop_connector();
+                        test_socktop_connector(serverUrl || undefined);
                         setTimeout(() => {
                             testBtn.disabled = false;
                         }, 2000);
