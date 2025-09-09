@@ -21,11 +21,11 @@ use url::Url;
 #[cfg(feature = "wasm")]
 use web_sys::WebSocket;
 
-#[cfg(all(feature = "wasm", not(feature = "networking")))]  
+#[cfg(all(feature = "wasm", not(feature = "networking")))]
 use pb::Processes;
-#[cfg(all(feature = "wasm", not(feature = "networking")))]  
+#[cfg(all(feature = "wasm", not(feature = "networking")))]
 use prost::Message as ProstMessage;
-#[cfg(all(feature = "wasm", not(feature = "networking")))]  
+#[cfg(all(feature = "wasm", not(feature = "networking")))]
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 
 #[cfg(feature = "tls")]
@@ -46,7 +46,8 @@ use tokio_tungstenite::{Connector, connect_async_tls_with_config};
 use crate::error::{ConnectorError, Result};
 use crate::types::{AgentRequest, AgentResponse};
 #[cfg(any(feature = "networking", feature = "wasm"))]
-use crate::types::{DiskInfo, Metrics, ProcessInfo, ProcessesPayload};#[cfg(feature = "tls")]
+use crate::types::{DiskInfo, Metrics, ProcessInfo, ProcessesPayload};
+#[cfg(feature = "tls")]
 fn ensure_crypto_provider() {
     use std::sync::Once;
     static INIT: Once = Once::new();
