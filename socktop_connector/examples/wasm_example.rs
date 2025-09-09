@@ -26,10 +26,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Make a request to get metrics
     match connector.request(AgentRequest::Metrics).await {
         Ok(response) => {
-            println!("Successfully received response: {:?}", response);
+            println!("Successfully received response: {response:?}");
         }
         Err(e) => {
-            println!("Request failed: {}", e);
+            println!("Request failed: {e}");
         }
     }
 

@@ -144,12 +144,12 @@ pub mod connector;
 pub mod error;
 pub mod types;
 
-pub use connector::{
-    ConnectorConfig, SocktopConnector, WsStream, connect_to_socktop_agent,
-    connect_to_socktop_agent_with_config,
-};
+pub use connector::{ConnectorConfig, SocktopConnector};
 
-#[cfg(feature = "tls")]
+#[cfg(feature = "networking")]
+pub use connector::{WsStream, connect_to_socktop_agent, connect_to_socktop_agent_with_config};
+
+#[cfg(all(feature = "tls", feature = "networking"))]
 pub use connector::connect_to_socktop_agent_with_tls;
 pub use error::{ConnectorError, Result};
 pub use types::{

@@ -6,6 +6,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum ConnectorError {
     /// WebSocket connection failed
+    #[cfg(feature = "networking")]
     #[error("WebSocket connection failed: {source}")]
     ConnectionFailed {
         #[from]
@@ -13,6 +14,7 @@ pub enum ConnectorError {
     },
 
     /// URL parsing error
+    #[cfg(feature = "networking")]
     #[error("Invalid URL: {url}")]
     InvalidUrl {
         url: String,
@@ -124,8 +126,16 @@ impl ConnectorError {
             message: message.into(),
         }
     }
+
+    /// Create a serialization error (wraps JSON error)
+    pub fn serialization_error(message: impl Into<String>) -> Self {
+        Self::ProtocolError {
+            message: message.into(),
+        }
+    }
 }
 
+#[cfg(feature = "networking")]
 impl From<url::ParseError> for ConnectorError {
     fn from(source: url::ParseError) -> Self {
         Self::InvalidUrl {

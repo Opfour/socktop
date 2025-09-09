@@ -97,9 +97,13 @@ impl AgentRequest {
 }
 
 /// Response types that can be received from the agent
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "type")]
 pub enum AgentResponse {
+    #[serde(rename = "metrics")]
     Metrics(Metrics),
+    #[serde(rename = "disks")]
     Disks(Vec<DiskInfo>),
+    #[serde(rename = "processes")]
     Processes(ProcessesPayload),
 }
