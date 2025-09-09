@@ -32,7 +32,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-socktop_connector = "0.1.3"
+socktop_connector = "0.1.5"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "time", "macros"] }
 ```
 
@@ -342,26 +342,56 @@ The library provides flexible configuration through the `ConnectorConfig` builde
 
 ## WASM Compatibility
 
-`socktop_connector` provides **types-only support** for WebAssembly (WASM) environments. The core types and configuration work perfectly in WASM, but networking must be handled through browser WebSocket APIs.
+`socktop_connector` provides **full WebSocket support** for WebAssembly (WASM) environments, including complete networking functionality with automatic compression and protobuf decoding.
 
 ### Quick Setup
 
 ```toml
 [dependencies]
-socktop_connector = { version = "0.1.3", default-features = false }
+socktop_connector = { version = "0.1.5", default-features = false, features = ["wasm"] }
 wasm-bindgen = "0.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ```
 
 ### What Works
+- ✅ Full WebSocket connectivity (`ws://` connections)
+- ✅ All request types (`Metrics`, `Disks`, `Processes`)  
+- ✅ Automatic gzip decompression for metrics and disks
+- ✅ Automatic protobuf decoding for process data
 - ✅ All types (`ConnectorConfig`, `AgentRequest`, `AgentResponse`)
 - ✅ JSON serialization/deserialization  
 - ✅ Protocol and version configuration
 
 ### What Doesn't Work  
-- ❌ Direct WebSocket connections (use browser APIs instead)
+- ❌ TLS connections (`wss://`) - use `ws://` only
 - ❌ TLS certificate handling
+
+### Basic WASM Usage
+
+```rust
+use wasm_bindgen::prelude::*;
+use socktop_connector::{ConnectorConfig, SocktopConnector, AgentRequest};
+
+#[wasm_bindgen]
+pub async fn test_connection() {
+    let config = ConnectorConfig::new("ws://localhost:3000/ws");
+    let mut connector = SocktopConnector::new(config);
+    
+    match connector.connect().await {
+        Ok(()) => {
+            // Request metrics with automatic gzip decompression
+            let response = connector.request(AgentRequest::Metrics).await.unwrap();
+            console_log!("Got metrics: {:?}", response);
+            
+            // Request processes with automatic protobuf decoding
+            let response = connector.request(AgentRequest::Processes).await.unwrap();
+            console_log!("Got processes: {:?}", response);
+        }
+        Err(e) => console_log!("Connection failed: {}", e),
+    }
+}
+```
 
 ### Complete WASM Guide
 
