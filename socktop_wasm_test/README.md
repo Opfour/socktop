@@ -4,21 +4,23 @@ This directory contains a complete WebAssembly (WASM) compatibility test and imp
 
 ## Overview
 
-`socktop_connector` provides **types-only support** for WebAssembly environments. While the networking functionality requires tokio/mio (which don't work in WASM), the core types can be used for serialization and configuration with browser WebSocket APIs.
+`socktop_connector` provides **full WebSocket networking support** for WebAssembly environments. The library includes complete connectivity functionality with automatic compression and protobuf decoding, making it easy to connect to socktop agents directly from browser applications.
 
 ## What Works in WASM
 
+- ✅ **Full WebSocket connections** (`ws://` connections)
+- ✅ **All request types** (`AgentRequest::Metrics`, `AgentRequest::Disks`, `AgentRequest::Processes`)
+- ✅ **Automatic data processing**: Gzip decompression for metrics/disks, protobuf decoding for processes
 - ✅ Configuration types (`ConnectorConfig`) 
 - ✅ Request/Response types (`AgentRequest`, `AgentResponse`)  
 - ✅ JSON serialization/deserialization of all types
 - ✅ Protocol and version configuration builders
-- ✅ All type-safe validation and error handling for configurations
+- ✅ All type-safe validation and error handling
 
 ## What Doesn't Work in WASM
 
-- ❌ Direct WebSocket connections (tokio/mio incompatibility)
-- ❌ TLS certificate handling (rustls incompatibility)
-- ❌ All networking functionality (`connect_to_socktop_agent*` functions)
+- ❌ TLS connections (`wss://`) - use `ws://` only
+- ❌ TLS certificate handling (use non-TLS endpoints)
 
 ## Quick Test
 
@@ -35,27 +37,22 @@ basic-http-server . --addr 127.0.0.1:8000
 
 ## WASM Dependencies
 
-The test uses minimal dependencies that work in WASM:
+The test uses the WASM-compatible networking features:
 
 ```toml
 [dependencies]
-socktop_connector = { path = "../socktop_connector", default-features = false }
+socktop_connector = { version = "0.1.5", default-features = false, features = ["wasm"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 wasm-bindgen = "0.2"
 console_error_panic_hook = "0.1"
-prost = "0.13"  # For protobuf compatibility testing
-
-[dependencies.getrandom] 
-version = "0.2"
-features = ["js"]  # Enable browser random number generation
 
 [dependencies.web-sys]
 version = "0.3"
-features = ["console"]  # For console.log
+features = ["console"]
 ```
 
-**Critical**: Use `default-features = false` to exclude tokio and rustls dependencies that don't work in WASM.
+**Key**: Use `features = ["wasm"]` to enable full WebSocket networking support in WASM builds.
 
 ## Implementation Strategy
 

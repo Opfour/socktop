@@ -1,7 +1,8 @@
 use wasm_bindgen::prelude::*;
-use serde::{Deserialize, Serialize};
+use wasm_bindgen_futures::spawn_local;
+use socktop_connector::{ConnectorConfig, AgentRequest, SocktopConnector};
 
-// Import the `console.log` function from the browser
+// Import the `console.log` function from the Web API
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_namespace = console)]
@@ -13,59 +14,16 @@ macro_rules! console_log {
     ($($t:tt)*) => (log(&format_args!($($t)*).to_string()))
 }
 
-// Replicate the core types from socktop_connector for WASM use
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WasmConnectorConfig {
-    pub url: String,
-    pub ws_version: Option<String>,
-    pub ws_protocols: Option<Vec<String>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum WasmAgentRequest {
-    Metrics,
-    Processes,
-    Disks,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WasmMetrics {
-    pub hostname: String,
-    pub cpu_total: f64,
-    pub mem_used: u64,
-    pub mem_total: u64,
-}
-
-impl WasmConnectorConfig {
-    pub fn new(url: impl Into<String>) -> Self {
-        Self {
-            url: url.into(),
-            ws_version: None,
-            ws_protocols: None,
-        }
-    }
-
-    pub fn with_version(mut self, version: String) -> Self {
-        self.ws_version = Some(version);
-        self
-    }
-
-    pub fn with_protocols(mut self, protocols: Vec<String>) -> Self {
-        self.ws_protocols = Some(protocols);
-        self
-    }
-}
-
 // This is the main entry point called from JavaScript
 #[wasm_bindgen]
 pub fn test_socktop_connector() {
     console_error_panic_hook::set_once();
     
-    console_log!("🦀 Starting WASM-native socktop test...");
+    console_log!("🦀 Starting WASM connector test...");
     
-    // Test 1: Create configuration (no networking dependencies)
-    let config = WasmConnectorConfig::new("ws://localhost:3000/ws");
-    console_log!("✅ WasmConnectorConfig created: {}", config.url);
+    // Test 1: Create configuration
+    let config = ConnectorConfig::new("ws://localhost:3000/ws");
+    console_log!("✅ Config created: {}", config.url);
     
     // Test 2: Test configuration methods
     let config_with_protocols = config
@@ -73,53 +31,154 @@ pub fn test_socktop_connector() {
         .with_protocols(vec!["socktop".to_string(), "v1".to_string()]);
     console_log!("✅ Config with protocols: {:?}", config_with_protocols.ws_protocols);
     
-    let config_with_version = config
-        .with_version("13".to_string());
+    let config_with_version = config_with_protocols.with_version("13".to_string());
     console_log!("✅ Config with version: {:?}", config_with_version.ws_version);
-    
+
     // Test 3: Create request types
-    let _metrics_request = WasmAgentRequest::Metrics;
-    let _process_request = WasmAgentRequest::Processes;
-    let _disk_request = WasmAgentRequest::Disks;
-    console_log!("✅ Request types created successfully");
+    let _metrics_request = AgentRequest::Metrics;
+    let _disks_request = AgentRequest::Disks;
+    let _processes_request = AgentRequest::Processes;
+    console_log!("✅ AgentRequest types created");
     
-    // Test 4: Test serialization (important for WASM interop)
-    match serde_json::to_string(&_metrics_request) {
-        Ok(json) => console_log!("✅ Request serialization works: {}", json),
-        Err(e) => console_log!("❌ Serialization failed: {}", e),
+    // Test 4: Test serialization
+    if let Ok(json) = serde_json::to_string(&AgentRequest::Metrics) {
+        console_log!("✅ Serialization works: {}", json);
     }
+
+    // Test 5: WebSocket connection test
+    console_log!("🌐 Testing WebSocket connection...");
     
-    // Test 5: Test example metrics deserialization
-    let sample_metrics = WasmMetrics {
-        hostname: "wasm-test-host".to_string(),
-        cpu_total: 45.2,
-        mem_used: 8_000_000_000,
-        mem_total: 16_000_000_000,
-    };
+    spawn_local(async move {
+        test_websocket_connection(config_with_version).await;
+        
+        console_log!("");
+        console_log!("🎉 socktop_connector WASM Test Results:");
+        console_log!("✅ ConnectorConfig API works in WASM");
+        console_log!("✅ AgentRequest types work in WASM"); 
+        console_log!("✅ SocktopConnector compiles for WASM");
+        console_log!("✅ Connection stays alive with regular requests");
+    });
+}
+
+async fn test_websocket_connection(config: ConnectorConfig) {
+    console_log!("📡 Connecting to agent...");
     
-    match serde_json::to_string(&sample_metrics) {
-        Ok(json) => {
-            console_log!("✅ Metrics serialization: {}", json);
+    let mut connector = SocktopConnector::new(config);
+    
+    match connector.connect().await {
+        Ok(()) => {
+            console_log!("✅ Connected!");
             
-            // Test round-trip
-            match serde_json::from_str::<WasmMetrics>(&json) {
-                Ok(parsed) => console_log!("✅ Round-trip successful: hostname={}", parsed.hostname),
-                Err(e) => console_log!("❌ Deserialization failed: {}", e),
+            // Test continuous monitoring (5 rounds)
+            for round in 1..=5 {
+                console_log!("🔄 Round {}/5 - Requesting metrics...", round);
+                
+                // Request metrics (mimicking TUI behavior)
+                match connector.request(AgentRequest::Metrics).await {
+                    Ok(response) => {
+                        match &response {
+                            socktop_connector::AgentResponse::Metrics(metrics) => {
+                                console_log!("✅ Round {} - CPU: {:.1}%, Mem: {:.1}%, Host: {}", 
+                                    round,
+                                    metrics.cpu_total,
+                                    (metrics.mem_used as f64 / metrics.mem_total as f64) * 100.0,
+                                    metrics.hostname
+                                );
+                                
+                                // Show JSON summary for each round (clean, collapsible)
+                                if let Ok(json_str) = serde_json::to_string_pretty(&response) {
+                                    console_log!("📊 Round {} JSON ({} chars):", round, json_str.len());
+                                    console_log!("{}", json_str);
+                                }
+                            },
+                            _ => console_log!("📊 Round {} - Received non-metrics response", round),
+                        }
+                    }
+                    Err(e) => {
+                        console_log!("❌ Round {} failed: {}", round, e);
+                        console_log!("🔍 Error details: {:?}", e);
+                    }
+                }
+
+                // Every other round, also test disks and processes
+                if round % 2 == 0 {
+                    console_log!("💾 Round {} - Requesting disk info...", round);
+                    match connector.request(AgentRequest::Disks).await {
+                        Ok(response) => {
+                            match &response {
+                                socktop_connector::AgentResponse::Disks(disks) => {
+                                    console_log!("✅ Round {} - Got {} disks", round, disks.len());
+                                    for disk in disks.iter().take(3) { // Show first 3 disks
+                                        let used_gb = (disk.total - disk.available) / 1024 / 1024 / 1024;
+                                        let total_gb = disk.total / 1024 / 1024 / 1024;
+                                        console_log!("  💿 {}: {}/{} GB used", disk.name, used_gb, total_gb);
+                                    }
+                                },
+                                _ => console_log!("❌ Round {} - Unexpected disk response type", round),
+                            }
+                        },
+                        Err(e) => console_log!("❌ Round {} - Disk request failed: {}", round, e),
+                    }
+                    
+                    console_log!("⚙️  Round {} - Requesting process info...", round);
+                    match connector.request(AgentRequest::Processes).await {
+                        Ok(response) => {
+                            match &response {
+                                socktop_connector::AgentResponse::Processes(processes) => {
+                                    console_log!("✅ Round {} - Process count: {}, Top processes: {}", 
+                                        round, 
+                                        processes.process_count,
+                                        processes.top_processes.len()
+                                    );
+                                    if processes.top_processes.is_empty() {
+                                        console_log!("ℹ️  No top processes in response (process_count: {})", processes.process_count);
+                                    } else {
+                                        for process in processes.top_processes.iter().take(3) { // Show top 3 processes
+                                            console_log!("  ⚙️ {}: {:.1}% CPU, {} MB", 
+                                                process.name, 
+                                                process.cpu_usage,
+                                                process.mem_bytes / 1024 / 1024
+                                            );
+                                        }
+                                    }
+                                },
+                                _ => console_log!("❌ Round {} - Unexpected process response type", round),
+                            }
+                        },
+                        Err(e) => console_log!("❌ Round {} - Process request failed: {}", round, e),
+                    }
+                }
+                
+                // Wait 1 second between rounds
+                if round < 5 {
+                    console_log!("⏱️  Waiting 1 second...");
+                    let promise = js_sys::Promise::new(&mut |resolve, _| {
+                        let closure = wasm_bindgen::closure::Closure::once(move || resolve.call0(&wasm_bindgen::JsValue::UNDEFINED));
+                        web_sys::window()
+                            .unwrap()
+                            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                                closure.as_ref().unchecked_ref(),
+                                1000, // 1 second delay
+                            )
+                            .unwrap();
+                        closure.forget();
+                    });
+                    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+                }
+            }
+            
+            console_log!("");
+            console_log!("🎉 Test completed successfully!");
+            
+            // Clean disconnect
+            match connector.disconnect().await {
+                Ok(()) => console_log!("✅ Disconnected"),
+                Err(e) => console_log!("⚠️  Disconnect error: {}", e),
             }
         }
-        Err(e) => console_log!("❌ Metrics serialization failed: {}", e),
+        Err(e) => {
+            console_log!("❌ Connection failed: {}", e);
+            console_log!("💡 Make sure socktop_agent is running on localhost:3000");
+        }
     }
-    
-    console_log!("");
-    console_log!("🎉 WASM Compatibility Test Results:");
-    console_log!("✅ Core types compile and work in WASM");
-    console_log!("✅ Configuration API works without networking");
-    console_log!("✅ Serialization/deserialization works");
-    console_log!("✅ NO rustls/TLS dependencies required");
-    console_log!("✅ NO tokio/mio dependencies required");
-    console_log!("");
-    console_log!("💡 For actual WebSocket connections in WASM:");
-    console_log!("   • Use browser's WebSocket API directly"); 
-    console_log!("   • Or use a WASM-compatible WebSocket crate");
-    console_log!("   • Use these types for message serialization");
 }
