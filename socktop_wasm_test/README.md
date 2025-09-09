@@ -22,7 +22,7 @@ This directory contains a complete WebAssembly (WASM) compatibility test and imp
 - ❌ TLS connections (`wss://`) - use `ws://` only
 - ❌ TLS certificate handling (use non-TLS endpoints)
 
-## Quick Test
+## Quick Start - WASM Test Page
 
 ```bash
 # Please note that the test assumes you have and agent runnign on your local host at port 3000. If you would like to use an alternate configuration please update lib.rs prior to build. 
@@ -36,6 +36,9 @@ basic-http-server . --addr 127.0.0.1:8000
 # Open http://127.0.0.1:8000 in your browser
 # Check the browser console for test results
 ```
+
+<img src="./screenshot_09092025_134458.jpg" width="85%">
+
 
 ## WASM Dependencies
 
