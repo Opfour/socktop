@@ -25,6 +25,8 @@ This directory contains a complete WebAssembly (WASM) compatibility test and imp
 ## Quick Test
 
 ```bash
+# Please note that the test assumes you have and agent runnign on your local host at port 3000. If you would like to use an alternate configuration please update lib.rs prior to build. 
+
 # Build the WASM package
 wasm-pack build --target web --out-dir pkg
 
