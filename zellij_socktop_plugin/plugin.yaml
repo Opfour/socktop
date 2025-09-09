@@ -1,0 +1,11 @@
+name: "socktop"
+version: "0.1.0"
+authors: ["Your Name <your@email.com>"]
+plugin: true
+permissions:
+  - ReadApplicationState
+configuration:
+  server_url:
+    type: "string"
+    default: "ws://localhost:3000/ws"
+    description: "WebSocket URL for socktop agent"
