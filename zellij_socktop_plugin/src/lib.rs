@@ -131,25 +131,16 @@ impl State {
     fn fetch_metrics(&mut self) {
         unsafe {
             if let Some(ref mut connector) = STATE.connector {
-                // In a real implementation, you would:
-                // 1. Make an async call to connector.request(AgentRequest::Metrics)
-                // 2. Handle the response and update STATE.metrics_data
-                // 3. Handle errors and update STATE.error_message
-                
-                // For this scaffold, we'll simulate a response
-                match STATE.update_counter % 4 {
-                    0 => {
-                        STATE.metrics_data = Some("CPU: 45.2%, Memory: 67.8%".to_string());
+                // Try to get real metrics from socktop agent
+                match self.try_get_metrics(connector) {
+                    Ok(metrics_text) => {
+                        STATE.metrics_data = Some(metrics_text);
                         STATE.connection_status = "Active".to_string();
+                        STATE.error_message = None;
                     }
-                    1 => {
-                        STATE.metrics_data = Some("CPU: 32.1%, Memory: 71.3%".to_string());
-                    }
-                    2 => {
-                        STATE.metrics_data = Some("CPU: 58.7%, Memory: 69.1%".to_string());
-                    }
-                    _ => {
-                        STATE.metrics_data = Some("CPU: 41.9%, Memory: 72.4%".to_string());
+                    Err(error) => {
+                        STATE.error_message = Some(error);
+                        STATE.connection_status = "Error".to_string();
                     }
                 }
             } else {
@@ -158,29 +149,32 @@ impl State {
             }
         }
     }
-}
 
-// Async helper for real WebSocket operations (commented out for scaffold)
-/*
-async fn connect_and_fetch(connector: &mut SocktopConnector) -> Result<String, String> {
-    // Connect to socktop agent
-    connector.connect().await
-        .map_err(|e| format!("Connection failed: {}", e))?;
-    
-    // Request metrics
-    let response = connector.request(AgentRequest::Metrics).await
-        .map_err(|e| format!("Metrics request failed: {}", e))?;
-    
-    // Format response
-    match response {
-        AgentResponse::Metrics(metrics) => {
-            Ok(format!("CPU: {:.1}%, Mem: {:.1}%, Host: {}", 
-                metrics.cpu_total,
-                (metrics.mem_used as f64 / metrics.mem_total as f64) * 100.0,
-                metrics.hostname
-            ))
+    fn try_get_metrics(&mut self, connector: &mut SocktopConnector) -> Result<String, String> {
+        // Note: This is synchronous for simplicity. In a real plugin you might need
+        // to handle async operations differently depending on Zellij's threading model.
+        
+        // For now, we'll use a blocking approach or return a placeholder
+        // that indicates we're trying to connect
+        
+        // Attempt connection if not connected
+        if let Err(e) = futures::executor::block_on(connector.connect()) {
+            return Err(format!("Connection failed: {}", e));
         }
-        _ => Err("Unexpected response type".to_string())
+        
+        // Request metrics
+        match futures::executor::block_on(connector.request(AgentRequest::Metrics)) {
+            Ok(AgentResponse::Metrics(metrics)) => {
+                Ok(format!(
+                    "CPU: {:.1}% | Mem: {:.1}% | Host: {} | Load: {:.2}",
+                    metrics.cpu_total,
+                    (metrics.mem_used as f64 / metrics.mem_total as f64) * 100.0,
+                    metrics.hostname,
+                    metrics.load_avg_1m
+                ))
+            }
+            Ok(_) => Err("Unexpected response type".to_string()),
+            Err(e) => Err(format!("Request failed: {}", e)),
+        }
     }
 }
-*/

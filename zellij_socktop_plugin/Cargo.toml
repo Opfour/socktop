@@ -11,6 +11,7 @@ zellij-tile = "0.40.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 socktop_connector = { version = "0.1.5", default-features = false, features = ["wasm"] }
+futures = "0.3"
 
 [dependencies.chrono]
 version = "0.4"
