@@ -3,13 +3,15 @@ name = "socktop"
 version = "1.40.0"
 authors = ["Jason Witty <jasonpwitty+socktop@proton.me>"]
 description = "Remote system monitor over WebSocket, TUI like top"
-edition = "2021"
+edition = "2024"
 license = "MIT"
 readme = "README.md"
 
 [dependencies]
+# socktop connector for agent communication
+socktop_connector = { path = "../socktop_connector" }
+
 tokio = { workspace = true }
-tokio-tungstenite = { workspace = true }
 futures-util = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -17,17 +19,9 @@ url = { workspace = true }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
 anyhow = { workspace = true }
-flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 dirs-next = { workspace = true }
 sysinfo = { workspace = true }
-rustls = "0.23"
-rustls-pemfile = "2.1"
-prost = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = "2.0"
 tempfile = "3"
-
-[build-dependencies]
-prost-build = "0.13"
-protoc-bin-vendored = "3"

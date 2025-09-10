@@ -42,7 +42,7 @@ jobs:
             kill $AGENT_PID || true
             exit 1
           fi
-          SOCKTOP_WS=ws://127.0.0.1:3000/ws cargo test -p socktop --test ws_probe -- --nocapture
+          SOCKTOP_WS=ws://127.0.0.1:3000/ws cargo test -p socktop_connector --test integration_test -- --nocapture
           kill $AGENT_PID || true
 
       - name: "Windows: start agent and run WS probe"
@@ -79,7 +79,7 @@ jobs:
           }
           $env:SOCKTOP_WS = "ws://127.0.0.1:3000/ws"
           try {
-            cargo test -p socktop --test ws_probe -- --nocapture
+            cargo test -p socktop_connector --test integration_test -- --nocapture
           } finally {
             if ($p -and !$p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
           }

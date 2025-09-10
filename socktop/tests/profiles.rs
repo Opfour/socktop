@@ -60,7 +60,9 @@ fn test_profile_created_on_first_use() {
     let _guard = ENV_LOCK.lock().unwrap();
     // Isolate config in a temp dir
     let td = tempfile::tempdir().unwrap();
-    std::env::set_var("XDG_CONFIG_HOME", td.path());
+    unsafe {
+        std::env::set_var("XDG_CONFIG_HOME", td.path());
+    }
     // Ensure directory exists fresh
     std::fs::create_dir_all(td.path().join("socktop")).unwrap();
     let _ = fs::remove_file(profiles_path());
@@ -78,7 +80,9 @@ fn test_profile_created_on_first_use() {
 fn test_profile_overwrite_only_when_changed() {
     let _guard = ENV_LOCK.lock().unwrap();
     let td = tempfile::tempdir().unwrap();
-    std::env::set_var("XDG_CONFIG_HOME", td.path());
+    unsafe {
+        std::env::set_var("XDG_CONFIG_HOME", td.path());
+    }
     std::fs::create_dir_all(td.path().join("socktop")).unwrap();
     let _ = fs::remove_file(profiles_path());
     // Initial create
@@ -101,7 +105,9 @@ fn test_profile_overwrite_only_when_changed() {
 fn test_profile_tls_ca_persisted() {
     let _guard = ENV_LOCK.lock().unwrap();
     let td = tempfile::tempdir().unwrap();
-    std::env::set_var("XDG_CONFIG_HOME", td.path());
+    unsafe {
+        std::env::set_var("XDG_CONFIG_HOME", td.path());
+    }
     std::fs::create_dir_all(td.path().join("socktop")).unwrap();
     let _ = fs::remove_file(profiles_path());
     let (_ok, _out) = run_socktop(&[

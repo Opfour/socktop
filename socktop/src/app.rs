@@ -9,28 +9,36 @@ use std::{
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
-    backend::CrosstermBackend,
-    layout::{Constraint, Direction, Rect},
     //style::Color, // + add Color
     Terminal,
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Rect},
 };
 use tokio::time::sleep;
 
-use crate::history::{push_capped, PerCoreHistory};
+use crate::history::{PerCoreHistory, push_capped};
 use crate::types::Metrics;
 use crate::ui::cpu::{
-    draw_cpu_avg_graph, draw_per_core_bars, per_core_clamp, per_core_content_area,
-    per_core_handle_key, per_core_handle_mouse, per_core_handle_scrollbar_mouse, PerCoreScrollDrag,
+    PerCoreScrollDrag, draw_cpu_avg_graph, draw_per_core_bars, per_core_clamp,
+    per_core_content_area, per_core_handle_key, per_core_handle_mouse,
+    per_core_handle_scrollbar_mouse,
 };
-use crate::ui::processes::{processes_handle_key, processes_handle_mouse, ProcSortBy};
+use crate::ui::processes::{ProcSortBy, processes_handle_key, processes_handle_mouse};
 use crate::ui::{
     disks::draw_disks, gpu::draw_gpu, header::draw_header, mem::draw_mem, net::draw_net_spark,
     swap::draw_swap,
 };
-use crate::ws::{connect, request_disks, request_metrics, request_processes};
+use socktop_connector::{
+    AgentRequest, AgentResponse, SocktopConnector, connect_to_socktop_agent,
+    connect_to_socktop_agent_with_tls,
+};
+
+// Constants for minimum intervals to ensure reasonable performance
+const MIN_METRICS_INTERVAL_MS: u64 = 100;
+const MIN_PROCESSES_INTERVAL_MS: u64 = 200;
 
 pub struct App {
     // Latest metrics + histories
@@ -106,12 +114,12 @@ impl App {
     }
 
     pub fn with_intervals(mut self, metrics_ms: Option<u64>, procs_ms: Option<u64>) -> Self {
-        if let Some(m) = metrics_ms {
-            self.metrics_interval = Duration::from_millis(m.max(100));
-        }
-        if let Some(p) = procs_ms {
-            self.procs_interval = Duration::from_millis(p.max(200));
-        }
+        metrics_ms.inspect(|&m| {
+            self.metrics_interval = Duration::from_millis(m.max(MIN_METRICS_INTERVAL_MS));
+        });
+        procs_ms.inspect(|&p| {
+            self.procs_interval = Duration::from_millis(p.max(MIN_PROCESSES_INTERVAL_MS));
+        });
         self
     }
 
@@ -125,11 +133,15 @@ impl App {
         &mut self,
         url: &str,
         tls_ca: Option<&str>,
+        verify_hostname: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Connect to agent
-        //let mut ws = connect(url, tls_ca).await?;
         self.ws_url = url.to_string();
-        let mut ws = connect(url, tls_ca).await?;
+        let mut ws = if let Some(ca_path) = tls_ca {
+            connect_to_socktop_agent_with_tls(url, ca_path, verify_hostname).await?
+        } else {
+            connect_to_socktop_agent(url).await?
+        };
 
         // Terminal setup
         enable_raw_mode()?;
@@ -154,7 +166,7 @@ impl App {
     async fn event_loop<B: ratatui::backend::Backend>(
         &mut self,
         terminal: &mut Terminal<B>,
-        ws: &mut crate::ws::WsStream,
+        ws: &mut SocktopConnector,
     ) -> Result<(), Box<dyn std::error::Error>> {
         loop {
             // Input (non-blocking)
@@ -257,16 +269,15 @@ impl App {
                         // Processes table: sort by column on header click
                         if let (Some(mm), Some(p_area)) =
                             (self.last_metrics.as_ref(), self.last_procs_area)
-                        {
-                            if let Some(new_sort) = processes_handle_mouse(
+                            && let Some(new_sort) = processes_handle_mouse(
                                 &mut self.procs_scroll_offset,
                                 &mut self.procs_drag,
                                 m,
                                 p_area,
                                 mm.top_processes.len(),
-                            ) {
-                                self.procs_sort_by = new_sort;
-                            }
+                            )
+                        {
+                            self.procs_sort_by = new_sort;
                         }
                     }
                     Event::Resize(_, _) => {}
@@ -278,26 +289,29 @@ impl App {
             }
 
             // Fetch and update
-            if let Some(m) = request_metrics(ws).await {
-                self.update_with_metrics(m);
+            if let Ok(response) = ws.request(AgentRequest::Metrics).await {
+                if let AgentResponse::Metrics(m) = response {
+                    self.update_with_metrics(m);
+                }
 
                 // Only poll processes every 2s
                 if self.last_procs_poll.elapsed() >= self.procs_interval {
-                    if let Some(procs) = request_processes(ws).await {
-                        if let Some(mm) = self.last_metrics.as_mut() {
-                            mm.top_processes = procs.top_processes;
-                            mm.process_count = Some(procs.process_count);
-                        }
+                    if let Ok(AgentResponse::Processes(procs)) =
+                        ws.request(AgentRequest::Processes).await
+                        && let Some(mm) = self.last_metrics.as_mut()
+                    {
+                        mm.top_processes = procs.top_processes;
+                        mm.process_count = Some(procs.process_count);
                     }
                     self.last_procs_poll = Instant::now();
                 }
 
                 // Only poll disks every 5s
                 if self.last_disks_poll.elapsed() >= self.disks_interval {
-                    if let Some(disks) = request_disks(ws).await {
-                        if let Some(mm) = self.last_metrics.as_mut() {
-                            mm.disks = disks;
-                        }
+                    if let Ok(AgentResponse::Disks(disks)) = ws.request(AgentRequest::Disks).await
+                        && let Some(mm) = self.last_metrics.as_mut()
+                    {
+                        mm.disks = disks;
                     }
                     self.last_disks_poll = Instant::now();
                 }

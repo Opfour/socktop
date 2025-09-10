@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Socktop Connector WASM Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background-color: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .log { margin: 5px 0; padding: 5px; border-radius: 4px; }
+        .success { color: #0a7c0a; background-color: #e8f5e8; }
+        .warning { color: #b8860b; background-color: #fdf6e3; }
+        .error { color: #d2322d; background-color: #f9e6e6; }
+        .info { color: #0969da; background-color: #e6f3ff; }
+        button { 
+            background: #0969da; 
+            color: white; 
+            border: none; 
+            padding: 10px 20px; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 14px;
+            margin: 10px 0;
+        }
+        button:hover { background: #0757c7; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .server-input { 
+            margin: 10px 0; 
+            padding: 8px; 
+            width: 300px; 
+            border: 1px solid #ddd; 
+            border-radius: 4px; 
+            font-family: monospace; 
+        }
+        .input-group { margin: 15px 0; }
+        .input-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        #output { 
+            border: 1px solid #ddd; 
+            border-radius: 4px; 
+            padding: 10px; 
+            min-height: 200px; 
+            background: #fafafa;
+            font-family: 'Courier New', monospace;
+        }
+        .status { font-weight: bold; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🦀 Socktop Connector WASM Test</h1>
+        
+        <div class="status">
+            <p><strong>Test Purpose:</strong> Verify socktop_connector works in WebAssembly without TLS dependencies</p>
+            <p><strong>Status:</strong> <span id="status">Loading WASM module...</span></p>
+        </div>
+        
+        <div class="input-group">
+            <label for="server-url">Server URL:</label>
+            <input type="text" id="server-url" class="server-input" value="ws://localhost:3000/ws" 
+                   placeholder="ws://localhost:3000/ws">
+        </div>
+        
+        <button id="test-btn" disabled>Run WASM Test</button>
+        <button id="clear-btn">Clear Output</button>
+        
+        <h3>Output:</h3>
+        <div id="output"></div>
+        
+        <h3>ICON LEGEND:</h3>
+        <ul>
+            <li>✅ <strong>Success:</strong> No rustls/TLS errors, connector loads in WASM</li>
+            <li>⚠️ <strong>Expected:</strong> Connection failures without running socktop_agent</li>
+            <li>❌ <strong>Failure:</strong> Build errors or TLS dependency issues</li>
+        </ul>
+        
+        <p><small>💡 <strong>Tip:</strong> start socktop_agent with: <code>socktop_agent --port 3000</code></small></p>
+    </div>
+    
+    <script type="module">
+        import init, { test_socktop_connector } from './pkg/socktop_wasm_test.js';
+        
+        const output = document.getElementById('output');
+        const testBtn = document.getElementById('test-btn');
+        const clearBtn = document.getElementById('clear-btn');
+        const status = document.getElementById('status');
+        
+        // Capture console output and display it on page
+        const originalLog = console.log;
+        const originalError = console.error;
+        
+        function addLog(text, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `log ${type}`;
+            div.textContent = new Date().toLocaleTimeString() + ' - ' + text;
+            output.appendChild(div);
+            output.scrollTop = output.scrollHeight;
+        }
+        
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            const text = args.join(' ');
+            let type = 'info';
+            if (text.includes('✅')) {
+                type = 'success';
+            } else if (text.includes('⚠️')) {
+                type = 'warning';
+            } else if (text.includes('❌')) {
+                type = 'error';
+            }
+            addLog(text, type);
+        };
+        
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            addLog('ERROR: ' + args.join(' '), 'error');
+        };
+        
+        clearBtn.onclick = () => {
+            output.innerHTML = '';
+        };
+        
+        async function run() {
+            try {
+                await init();
+                addLog('WASM module initialized successfully!', 'success');
+                status.textContent = 'Ready to test';
+                testBtn.disabled = false;
+                
+                testBtn.onclick = () => {
+                    testBtn.disabled = true;
+                    const serverUrl = document.getElementById('server-url').value.trim();
+                    addLog('=== Starting WASM Test ===', 'info');
+                    addLog(`🌐 Using server: ${serverUrl}`, 'info');
+                    try {
+                        test_socktop_connector(serverUrl || undefined);
+                        setTimeout(() => {
+                            testBtn.disabled = false;
+                        }, 2000);
+                    } catch (e) {
+                        addLog('Test execution failed: ' + e.message, 'error');
+                        testBtn.disabled = false;
+                    }
+                };
+                
+            } catch (e) {
+                addLog('Failed to initialize WASM: ' + e.message, 'error');
+                status.textContent = 'Failed to load WASM module';
+                console.error('WASM initialization error:', e);
+            }
+        }
+        
+        run();
+    </script>
+</body>
+</html>

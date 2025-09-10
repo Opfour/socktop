@@ -28,6 +28,10 @@ Environment toggles:
 - SOCKTOP_AGENT_PROCESSES_TTL_MS=1000
 - SOCKTOP_AGENT_DISKS_TTL_MS=1000
 
+*NOTE ON ENV vars*
+
+Generally these have been added for debugging purposes. you do not need to configure them, default values are tuned and GPU will deisable itself after the first poll if not available.
+
 Systemd unit example & full docs:
 https://github.com/jasonwitty/socktop
 

@@ -1,0 +1,60 @@
+[package]
+name = "socktop_connector"
+version = "0.1.6"
+edition = "2024"
+license = "MIT"
+description = "WebSocket connector library for socktop agent communication"
+authors = ["Jason Witty <jasonpwitty+socktop@proton.me>"]
+repository = "https://github.com/jasonwitty/socktop"
+readme = "README.md"
+keywords = ["monitoring", "websocket", "metrics", "system"]
+categories = ["network-programming", "development-tools"]
+documentation = "https://docs.rs/socktop_connector"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# docs.rs specific metadata
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+# WebSocket client - only for non-WASM targets
+tokio-tungstenite = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+futures-util = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
+
+# WASM WebSocket support
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", features = ["WebSocket", "MessageEvent", "ErrorEvent", "CloseEvent", "BinaryType", "Window", "console"], optional = true }
+
+# TLS support
+rustls = { version = "0.23", features = ["ring"], optional = true }
+rustls-pemfile = { version = "2.1", optional = true }
+
+# Serialization - always available
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Compression - used in both networking and WASM modes
+flate2 = "1.0"
+
+# Protobuf - always available
+prost = { workspace = true }
+
+# Error handling - always available
+thiserror = "2.0"
+
+[build-dependencies]
+prost-build = "0.13"
+protoc-bin-vendored = "3.0"
+
+[features]
+default = ["networking", "tls"]
+networking = ["tokio-tungstenite", "tokio", "futures-util", "url"]
+tls = ["networking", "rustls", "rustls-pemfile"]
+wasm = ["wasm-bindgen", "wasm-bindgen-futures", "js-sys", "web-sys"]  # WASM-compatible networking with compression

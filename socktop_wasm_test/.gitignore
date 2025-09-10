@@ -1,0 +1,15 @@
+# Build artifacts
+/target/
+/pkg/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Backup files
+*~
+*.bak

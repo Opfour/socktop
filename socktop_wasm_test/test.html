@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>socktop_connector WASM Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .log {
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
+            font-family: monospace;
+            white-space: pre-wrap;
+            height: 500px;
+            overflow-y: scroll;
+        }
+        button {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            margin: 5px;
+            border-radius: 4px;
+        }
+        button:hover {
+            background: #005a87;
+        }
+    </style>
+</head>
+<body>
+    <h1>🦀 socktop_connector WASM Test</h1>
+    
+    <p>This test demonstrates that <code>socktop_connector</code> works properly in WebAssembly with real WebSocket connections.</p>
+    
+    <div style="margin: 20px 0; padding: 15px; background: #f9f9f9; border-radius: 4px;">
+        <label for="serverUrl" style="display: block; font-weight: bold; margin-bottom: 5px;">
+            🌐 WebSocket Server URL:
+        </label>
+        <input 
+            type="text" 
+            id="serverUrl" 
+            value="ws://localhost:3000/ws" 
+            style="width: 300px; padding: 8px; margin-right: 10px; border: 1px solid #ccc; border-radius: 4px;"
+            placeholder="ws://your-server:port/ws"
+        />
+        <small style="color: #666;">Edit if your socktop_agent is running on a different host/port</small>
+    </div>
+    
+    <div>
+        <button onclick="runTest()">Run Test</button>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+    
+    <h2>Test Output:</h2>
+    <div id="log" class="log">Click "Run Test" to start...\n</div>
+
+    <script type="module">
+        import init, { test_socktop_connector } from './pkg/socktop_wasm_test.js';
+        
+        const logElement = document.getElementById('log');
+        let wasmInitialized = false;
+        
+        // Override console.log to capture output
+        const originalConsoleLog = console.log;
+        console.log = function(...args) {
+            originalConsoleLog.apply(console, arguments);
+            logElement.textContent += args.join(' ') + '\n';
+            logElement.scrollTop = logElement.scrollHeight;
+        };
+        
+        // Initialize WASM module on page load
+        async function initializeWasm() {
+            try {
+                console.log('🔄 Loading WASM module...');
+                await init();
+                wasmInitialized = true;
+                console.log('✅ WASM module initialized successfully!');
+                updateButtonState();
+            } catch (error) {
+                console.log('❌ Failed to initialize WASM module:', error);
+                console.log('💡 Make sure the build was successful and pkg/ directory exists');
+            }
+        }
+        
+        function updateButtonState() {
+            const button = document.querySelector('button');
+            if (wasmInitialized) {
+                button.disabled = false;
+                button.textContent = 'Run Test';
+                button.style.cursor = 'pointer';
+                button.title = 'Click to run the WASM test';
+            } else {
+                button.disabled = true;
+                button.textContent = 'Loading WASM...';
+                button.style.cursor = 'not-allowed';
+                button.title = 'WASM module is loading...';
+            }
+        }
+        
+        window.runTest = async function() {
+            if (!wasmInitialized) {
+                console.log('❌ WASM module not initialized yet');
+                return;
+            }
+            
+            // Get the server URL from the input field
+            const serverUrl = document.getElementById('serverUrl').value.trim();
+            if (!serverUrl) {
+                console.log('❌ Server URL cannot be empty');
+                return;
+            }
+            
+            try {
+                console.log('');
+                console.log('='.repeat(60));
+                console.log('🚀 Starting socktop_connector WASM test...');
+                console.log('🌐 Server URL: ' + serverUrl);
+                console.log('='.repeat(60));
+                console.log('');
+                
+                test_socktop_connector(serverUrl);
+            } catch (error) {
+                console.log('❌ Error running test:', error);
+                console.log('🔍 Error details:', error.stack);
+            }
+        };
+        
+        window.clearLog = function() {
+            logElement.textContent = 'Click "Run Test" to start...\n';
+        };
+        
+        // Initialize on page load
+        initializeWasm();
+        
+        // Update button state initially
+        updateButtonState();
+    </script>
+</body>
+</html>

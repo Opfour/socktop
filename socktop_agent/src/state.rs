@@ -1,8 +1,8 @@
 //! Shared agent state: sysinfo handles and hot JSON cache.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::time::{Duration, Instant};
 use sysinfo::{Components, Disks, Networks, System};
 use tokio::sync::Mutex;

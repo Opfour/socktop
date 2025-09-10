@@ -5,7 +5,7 @@ use axum::{
     extract::{Query, State, WebSocketUpgrade},
     response::Response,
 };
-use flate2::{write::GzEncoder, Compression};
+use flate2::{Compression, write::GzEncoder};
 use futures_util::StreamExt;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
@@ -40,12 +40,12 @@ pub async fn ws_handler(
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
     // optional auth
-    if let Some(expected) = state.auth_token.as_ref() {
-        if q.get("token") != Some(expected) {
-            return ws.on_upgrade(|socket| async move {
-                let _ = socket.close().await;
-            });
-        }
+    if let Some(expected) = state.auth_token.as_ref()
+        && q.get("token") != Some(expected)
+    {
+        return ws.on_upgrade(|socket| async move {
+            let _ = socket.close().await;
+        });
     }
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
