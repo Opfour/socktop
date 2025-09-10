@@ -9,8 +9,7 @@ pub enum ConnectorError {
     #[cfg(feature = "networking")]
     #[error("WebSocket connection failed: {source}")]
     ConnectionFailed {
-        #[from]
-        source: tokio_tungstenite::tungstenite::Error,
+        source: Box<tokio_tungstenite::tungstenite::Error>,
     },
 
     /// URL parsing error
@@ -141,6 +140,16 @@ impl From<url::ParseError> for ConnectorError {
         Self::InvalidUrl {
             url: "unknown".to_string(), // We don't have the URL in the error context
             source,
+        }
+    }
+}
+
+// Manual From implementation for boxed tungstenite errors
+#[cfg(feature = "networking")]
+impl From<tokio_tungstenite::tungstenite::Error> for ConnectorError {
+    fn from(source: tokio_tungstenite::tungstenite::Error) -> Self {
+        Self::ConnectionFailed {
+            source: Box::new(source),
         }
     }
 }
