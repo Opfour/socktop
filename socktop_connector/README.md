@@ -340,7 +340,7 @@ The library provides flexible configuration through the `ConnectorConfig` builde
 
 **Note**: Hostname verification only applies to TLS connections (`wss://`). Non-TLS connections (`ws://`) don't use certificates, so hostname verification is not applicable.
 
-## WASM Compatibility
+## WASM Compatibility (experimental)
 
 `socktop_connector` provides **full WebSocket support** for WebAssembly (WASM) environments, including complete networking functionality with automatic compression and protobuf decoding.
 

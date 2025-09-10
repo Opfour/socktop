@@ -140,19 +140,43 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-pub mod connector;
+// Core modules
+pub mod config;
 pub mod error;
 pub mod types;
+pub mod utils;
 
-pub use connector::{ConnectorConfig, SocktopConnector};
-
+// Implementation modules
 #[cfg(feature = "networking")]
-pub use connector::{WsStream, connect_to_socktop_agent, connect_to_socktop_agent_with_config};
+pub mod networking;
 
-#[cfg(all(feature = "tls", feature = "networking"))]
-pub use connector::connect_to_socktop_agent_with_tls;
+#[cfg(feature = "wasm")]
+pub mod wasm;
+
+// Main connector implementation
+pub mod connector_impl;
+
+// Re-export the main types
+pub use config::ConnectorConfig;
+pub use connector_impl::SocktopConnector;
 pub use error::{ConnectorError, Result};
 pub use types::{
     AgentRequest, AgentResponse, DiskInfo, GpuInfo, Metrics, NetworkInfo, ProcessInfo,
     ProcessesPayload,
 };
+
+// Re-export convenience functions
+#[cfg(feature = "networking")]
+pub use connector_impl::{connect_to_socktop_agent, connect_to_socktop_agent_with_config};
+
+#[cfg(all(feature = "tls", feature = "networking"))]
+pub use connector_impl::connect_to_socktop_agent_with_tls;
+
+#[cfg(feature = "networking")]
+pub use networking::WsStream;
+
+// Protobuf types for internal use
+#[cfg(any(feature = "networking", feature = "wasm"))]
+pub mod pb {
+    include!(concat!(env!("OUT_DIR"), "/socktop.rs"));
+}

@@ -1,13 +1,35 @@
 //! WebSocket connector for communicating with socktop agents.
 
-#[cfg(feature = "networking")]
-use flate2::bufread::GzDecoder;
+// WebSocket state constants
+#[cfg(feature = "wasm")]
+#[allow(dead_code)]
+const WEBSOCKET_CONNECTING: u16 = 0;
+#[cfg(feature = "wasm")]
+#[allow(dead_code)]
+const WEBSOCKET_OPEN: u16 = 1;
+#[cfg(feature = "wasm")]
+#[allow(dead_code)]
+const WEBSOCKET_CLOSING: u16 = 2;
+#[cfg(feature = "wasm")]
+#[allow(dead_code)]
+const WEBSOCKET_CLOSED: u16 = 3;
+
+// Gzip magic header constants
+const GZIP_MAGIC_1: u8 = 0x1f;
+const GZIP_MAGIC_2: u8 = 0x8b;
+
+// Shared imports for both networking and WASM
+#[cfg(any(feature = "networking", feature = "wasm"))]
+use flate2::read::GzDecoder;
+#[cfg(any(feature = "networking", feature = "wasm"))]
+use std::io::Read;
+#[cfg(any(feature = "networking", feature = "wasm"))]
+use prost::Message as ProstMessage;
+
 #[cfg(feature = "networking")]
 use futures_util::{SinkExt, StreamExt};
 #[cfg(feature = "networking")]
-use prost::Message as _;
-#[cfg(feature = "networking")]
-use std::io::Read;
+use std::io::BufReader;
 #[cfg(feature = "networking")]
 use tokio::net::TcpStream;
 #[cfg(feature = "networking")]
@@ -24,8 +46,6 @@ use web_sys::WebSocket;
 #[cfg(all(feature = "wasm", not(feature = "networking")))]
 use pb::Processes;
 #[cfg(all(feature = "wasm", not(feature = "networking")))]
-use prost::Message as ProstMessage;
-#[cfg(all(feature = "wasm", not(feature = "networking")))]
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 
 #[cfg(feature = "tls")]
@@ -39,7 +59,7 @@ use rustls::{DigitallySignedStruct, SignatureScheme};
 #[cfg(feature = "tls")]
 use rustls_pemfile::Item;
 #[cfg(feature = "tls")]
-use std::{fs::File, io::BufReader, sync::Arc};
+use std::{fs::File, sync::Arc};
 #[cfg(feature = "tls")]
 use tokio_tungstenite::{Connector, connect_async_tls_with_config};
 
@@ -349,7 +369,7 @@ async fn request_metrics(ws: &mut WsStream) -> Option<Metrics> {
     }
     match ws.next().await {
         Some(Ok(Message::Binary(b))) => {
-            gunzip_to_string(&b).and_then(|s| serde_json::from_str::<Metrics>(&s).ok())
+            gunzip_to_string(&b).ok().and_then(|s| serde_json::from_str::<Metrics>(&s).ok())
         }
         Some(Ok(Message::Text(json))) => serde_json::from_str::<Metrics>(&json).ok(),
         _ => None,
@@ -364,7 +384,7 @@ async fn request_disks(ws: &mut WsStream) -> Option<Vec<DiskInfo>> {
     }
     match ws.next().await {
         Some(Ok(Message::Binary(b))) => {
-            gunzip_to_string(&b).and_then(|s| serde_json::from_str::<Vec<DiskInfo>>(&s).ok())
+            gunzip_to_string(&b).ok().and_then(|s| serde_json::from_str::<Vec<DiskInfo>>(&s).ok())
         }
         Some(Ok(Message::Text(json))) => serde_json::from_str::<Vec<DiskInfo>>(&json).ok(),
         _ => None,
@@ -384,7 +404,7 @@ async fn request_processes(ws: &mut WsStream) -> Option<ProcessesPayload> {
     match ws.next().await {
         Some(Ok(Message::Binary(b))) => {
             let gz = is_gzip(&b);
-            let data = if gz { gunzip_to_vec(&b)? } else { b };
+            let data = if gz { gunzip_to_vec(&b).ok()? } else { b };
             match pb::Processes::decode(data.as_slice()) {
                 Ok(pb) => {
                     let rows: Vec<ProcessInfo> = pb
@@ -420,25 +440,32 @@ async fn request_processes(ws: &mut WsStream) -> Option<ProcessesPayload> {
 }
 
 // Decompress a gzip-compressed binary frame into a String.
-#[cfg(feature = "networking")]
-fn gunzip_to_string(bytes: &[u8]) -> Option<String> {
-    let mut dec = GzDecoder::new(bytes);
-    let mut out = String::new();
-    dec.read_to_string(&mut out).ok()?;
-    Some(out)
+/// Unified gzip decompression to string for both networking and WASM
+#[cfg(any(feature = "networking", feature = "wasm"))]
+fn gunzip_to_string(bytes: &[u8]) -> Result<String> {
+    let mut decoder = GzDecoder::new(bytes);
+    let mut decompressed = String::new();
+    decoder.read_to_string(&mut decompressed).map_err(|e| {
+        ConnectorError::protocol_error(format!("Gzip decompression failed: {e}"))
+    })?;
+    Ok(decompressed)
 }
 
-#[cfg(feature = "networking")]
-fn gunzip_to_vec(bytes: &[u8]) -> Option<Vec<u8>> {
-    let mut dec = GzDecoder::new(bytes);
-    let mut out = Vec::new();
-    dec.read_to_end(&mut out).ok()?;
-    Some(out)
+/// Unified gzip decompression to bytes for both networking and WASM
+#[cfg(any(feature = "networking", feature = "wasm"))]
+fn gunzip_to_vec(bytes: &[u8]) -> Result<Vec<u8>> {
+    let mut decoder = GzDecoder::new(bytes);
+    let mut decompressed = Vec::new();
+    decoder.read_to_end(&mut decompressed).map_err(|e| {
+        ConnectorError::protocol_error(format!("Gzip decompression failed: {e}"))
+    })?;
+    Ok(decompressed)
 }
 
-#[cfg(feature = "networking")]
+/// Unified gzip detection for both networking and WASM
+#[cfg(any(feature = "networking", feature = "wasm"))]
 fn is_gzip(bytes: &[u8]) -> bool {
-    bytes.len() >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b
+    bytes.len() >= 2 && bytes[0] == GZIP_MAGIC_1 && bytes[1] == GZIP_MAGIC_2
 }
 
 /// Convenience function to create a connector and connect in one step.
@@ -522,7 +549,7 @@ impl SocktopConnector {
     /// Connect to the agent using WASM WebSocket
     pub async fn connect(&mut self) -> Result<()> {
         let websocket = WebSocket::new(&self.config.url).map_err(|e| {
-            ConnectorError::protocol_error(&format!("Failed to create WebSocket: {:?}", e))
+            ConnectorError::protocol_error(format!("Failed to create WebSocket: {e:?}"))
         })?;
 
         // Set binary type for proper message handling
@@ -536,15 +563,15 @@ impl SocktopConnector {
         loop {
             let ready_state = websocket.ready_state();
 
-            if ready_state == 1 {
+            if ready_state == WEBSOCKET_OPEN {
                 // OPEN - connection is ready
                 break;
-            } else if ready_state == 3 {
+            } else if ready_state == WEBSOCKET_CLOSED {
                 // CLOSED
                 return Err(ConnectorError::protocol_error(
                     "WebSocket connection closed",
                 ));
-            } else if ready_state == 2 {
+            } else if ready_state == WEBSOCKET_CLOSING {
                 // CLOSING
                 return Err(ConnectorError::protocol_error("WebSocket is closing"));
             }
@@ -589,7 +616,7 @@ impl SocktopConnector {
 
         // Send request
         ws.send_with_str(&request_string).map_err(|e| {
-            ConnectorError::protocol_error(&format!("Failed to send message: {:?}", e))
+            ConnectorError::protocol_error(format!("Failed to send message: {e:?}"))
         })?;
 
         // Wait for response using JavaScript Promise
@@ -616,7 +643,7 @@ impl SocktopConnector {
                         mem_used: 0,
                         swap_total: 0,
                         swap_used: 0,
-                        hostname: format!("Binary protobuf data ({} bytes)", byte_count),
+                        hostname: format!("Binary protobuf data ({byte_count} bytes)"),
                         cpu_temp_c: None,
                         disks: vec![],
                         networks: vec![],
@@ -628,9 +655,8 @@ impl SocktopConnector {
                 } else {
                     // Try to parse as JSON (fallback)
                     let metrics: Metrics = serde_json::from_str(&response).map_err(|e| {
-                        ConnectorError::serialization_error(&format!(
-                            "Failed to parse metrics: {}",
-                            e
+                        ConnectorError::serialization_error(format!(
+                            "Failed to parse metrics: {e}"
                         ))
                     })?;
                     Ok(AgentResponse::Metrics(metrics))
@@ -638,7 +664,7 @@ impl SocktopConnector {
             }
             AgentRequest::Disks => {
                 let disks: Vec<DiskInfo> = serde_json::from_str(&response).map_err(|e| {
-                    ConnectorError::serialization_error(&format!("Failed to parse disks: {}", e))
+                    ConnectorError::serialization_error(format!("Failed to parse disks: {e}"))
                 })?;
                 Ok(AgentResponse::Disks(disks))
             }
@@ -658,9 +684,9 @@ impl SocktopConnector {
                 if let Some(ref data) = binary_data {
                     log_debug(&format!("🔍 Binary data size: {} bytes", data.len()));
                     // Check if it's gzipped data and decompress it first
-                    if is_gzip_data(data) {
+                    if is_gzip(data) {
                         log_debug("🔍 Process data is gzipped, decompressing...");
-                        match gunzip_to_vec_wasm(data) {
+                        match gunzip_to_vec(data) {
                             Ok(decompressed_bytes) => {
                                 log_debug(&format!(
                                     "🔍 Successfully decompressed {} bytes, now decoding protobuf...",
@@ -697,16 +723,14 @@ impl SocktopConnector {
                                     }
                                     Err(e) => {
                                         log_debug(&format!(
-                                            "❌ Failed to decode decompressed protobuf: {}",
-                                            e
+                                            "❌ Failed to decode decompressed protobuf: {e}"
                                         ));
                                     }
                                 }
                             }
                             Err(e) => {
                                 log_debug(&format!(
-                                    "❌ Failed to decompress gzipped process data: {}",
-                                    e
+                                    "❌ Failed to decompress gzipped process data: {e}"
                                 ));
                             }
                         }
@@ -750,16 +774,16 @@ impl SocktopConnector {
                                     top_processes: processes,
                                     process_count: protobuf_processes.process_count as usize,
                                 };
-                                return Ok(AgentResponse::Processes(processes_payload));
+                                Ok(AgentResponse::Processes(processes_payload))
                             }
                             Err(e) => {
-                                log_debug(&format!("❌ Failed to decode protobuf: {}", e));
+                                log_debug(&format!("❌ Failed to decode protobuf: {e}"));
                                 // Fallback to empty processes
                                 let processes = ProcessesPayload {
                                     top_processes: vec![],
                                     process_count: 0,
                                 };
-                                return Ok(AgentResponse::Processes(processes));
+                                Ok(AgentResponse::Processes(processes))
                             }
                         }
                     } else {
@@ -770,15 +794,14 @@ impl SocktopConnector {
                             top_processes: vec![],
                             process_count: 0,
                         };
-                        return Ok(AgentResponse::Processes(processes));
+                        Ok(AgentResponse::Processes(processes))
                     }
                 } else {
                     // Try to parse as JSON (fallback)
                     let processes: ProcessesPayload =
                         serde_json::from_str(&response).map_err(|e| {
-                            ConnectorError::serialization_error(&format!(
-                                "Failed to parse processes: {}",
-                                e
+                            ConnectorError::serialization_error(format!(
+                                "Failed to parse processes: {e}"
                             ))
                         })?;
                     Ok(AgentResponse::Processes(processes))
@@ -823,7 +846,7 @@ impl SocktopConnector {
                             } else {
                                 message.clone()
                             };
-                            log_debug(&format!("🔍 Received text: {}", preview));
+                            log_debug(&format!("🔍 Received text: {preview}"));
 
                             *response_cell.borrow_mut() = Some(message);
                             *response_received.borrow_mut() = true;
@@ -836,7 +859,7 @@ impl SocktopConnector {
                         let mut bytes = vec![0u8; length];
                         uint8_array.copy_to(&mut bytes);
 
-                        log_debug(&format!("🔍 Received binary data: {} bytes", length));
+                        log_debug(&format!("🔍 Received binary data: {length} bytes"));
 
                         // Debug: Log the first few bytes to see what we're dealing with
                         let first_bytes = if bytes.len() >= 4 {
@@ -847,7 +870,7 @@ impl SocktopConnector {
                         } else {
                             format!("Only {} bytes available", bytes.len())
                         };
-                        log_debug(&format!("🔍 First bytes: {}", first_bytes));
+                        log_debug(&format!("🔍 First bytes: {first_bytes}"));
 
                         // Try to decode as UTF-8 text first (in case it's JSON sent as binary)
                         match String::from_utf8(bytes.clone()) {
@@ -882,13 +905,12 @@ impl SocktopConnector {
                             }
                             Err(_) => {
                                 // If it's not valid UTF-8, check if it's gzipped data
-                                if is_gzip_data(&bytes) {
+                                if is_gzip(&bytes) {
                                     log_debug(&format!(
-                                        "🔍 Binary data appears to be gzipped ({} bytes)",
-                                        length
+                                        "🔍 Binary data appears to be gzipped ({length} bytes)"
                                     ));
-                                    // Try to decompress using WASI-compatible decompression
-                                    match decompress_gzip_browser(&bytes) {
+                                    // Try to decompress using unified gzip decompression
+                                    match gunzip_to_string(&bytes) {
                                         Ok(decompressed_text) => {
                                             log_debug(&format!(
                                                 "🔍 Gzipped data decompressed to text: {}",
@@ -903,25 +925,23 @@ impl SocktopConnector {
                                         }
                                         Err(e) => {
                                             log_debug(&format!(
-                                                "🔍 Failed to decompress gzip: {}",
-                                                e
+                                                "🔍 Failed to decompress gzip: {e}"
                                             ));
                                             // Fallback: treat as actual binary protobuf data
                                             *binary_data_cell.borrow_mut() = Some(bytes.clone());
                                             *response_cell.borrow_mut() =
-                                                Some(format!("BINARY_DATA:{}", length));
+                                                Some(format!("BINARY_DATA:{length}"));
                                             *response_received.borrow_mut() = true;
                                         }
                                     }
                                 } else {
                                     // If it's not valid UTF-8 and not gzipped, it's likely actual binary protobuf data
                                     log_debug(&format!(
-                                        "🔍 Binary data is actual protobuf ({} bytes)",
-                                        length
+                                        "🔍 Binary data is actual protobuf ({length} bytes)"
                                     ));
                                     *binary_data_cell.borrow_mut() = Some(bytes);
                                     *response_cell.borrow_mut() =
-                                        Some(format!("BINARY_DATA:{}", length));
+                                        Some(format!("BINARY_DATA:{length}"));
                                     *response_received.borrow_mut() = true;
                                 }
                             }
@@ -990,7 +1010,7 @@ impl SocktopConnector {
     pub fn is_connected(&self) -> bool {
         self.websocket
             .as_ref()
-            .map_or(false, |ws| ws.ready_state() == 1) // 1 = OPEN
+            .is_some_and(|ws| ws.ready_state() == WEBSOCKET_OPEN)
     }
 
     /// Disconnect from the agent
@@ -1033,43 +1053,17 @@ impl SocktopConnector {
 }
 
 // Helper function for logging that works in WASI environments
-#[cfg(all(feature = "wasm", not(feature = "networking")))]
+/// Unified debug logging for both networking and WASM modes
+#[cfg(any(feature = "networking", feature = "wasm"))]
+#[allow(dead_code)]
 fn log_debug(message: &str) {
-    // For WASI environments like Zellij plugins, use eprintln
-    eprintln!("{}", message);
-}
-#[cfg(all(feature = "wasm", not(feature = "networking")))]
-fn is_gzip_data(bytes: &[u8]) -> bool {
-    // Gzip files start with the magic bytes 0x1f 0x8b
-    bytes.len() >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b
-}
-
-#[cfg(all(feature = "wasm", not(feature = "networking")))]
-fn decompress_gzip_browser(bytes: &[u8]) -> Result<String> {
-    use flate2::read::GzDecoder;
-    use std::io::Read;
-
-    let mut decoder = GzDecoder::new(bytes);
-    let mut decompressed = String::new();
-    decoder.read_to_string(&mut decompressed).map_err(|e| {
-        ConnectorError::protocol_error(&format!("Gzip decompression failed: {}", e))
-    })?;
-
-    Ok(decompressed)
-}
-
-#[cfg(all(feature = "wasm", not(feature = "networking")))]
-fn gunzip_to_vec_wasm(bytes: &[u8]) -> Result<Vec<u8>> {
-    use flate2::read::GzDecoder;
-    use std::io::Read;
-
-    let mut decoder = GzDecoder::new(bytes);
-    let mut decompressed = Vec::new();
-    decoder.read_to_end(&mut decompressed).map_err(|e| {
-        ConnectorError::protocol_error(&format!("Gzip decompression failed: {}", e))
-    })?;
-
-    Ok(decompressed)
+    #[cfg(feature = "networking")]
+    if std::env::var("SOCKTOP_DEBUG").ok().as_deref() == Some("1") {
+        eprintln!("{message}");
+    }
+    
+    #[cfg(all(feature = "wasm", not(feature = "networking")))]
+    eprintln!("{message}");
 }
 
 // Stub implementations when neither networking nor wasm is enabled

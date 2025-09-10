@@ -2182,7 +2182,7 @@ dependencies = [
 
 [[package]]
 name = "socktop_agent"
-version = "1.40.67"
+version = "1.40.7"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2213,7 +2213,7 @@ dependencies = [
 
 [[package]]
 name = "socktop_connector"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "flate2",
  "futures-util",
