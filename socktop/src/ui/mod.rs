@@ -5,6 +5,7 @@ pub mod disks;
 pub mod gpu;
 pub mod header;
 pub mod mem;
+pub mod modal;
 pub mod net;
 pub mod processes;
 pub mod swap;

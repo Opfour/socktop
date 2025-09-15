@@ -3,8 +3,9 @@
 mod app;
 mod history;
 mod profiles;
+mod retry;
 mod types;
-mod ui;
+mod ui; // pure retry timing logic
 
 use app::App;
 use profiles::{ProfileEntry, ProfileRequest, ResolveProfile, load_profiles, save_profiles};
