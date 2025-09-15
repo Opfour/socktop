@@ -152,9 +152,7 @@ async fn connect_with_ca_and_config(
             }
         }
         cfg.dangerous().set_certificate_verifier(Arc::new(NoVerify));
-        eprintln!(
-            "socktop_connector: hostname verification disabled (default). Set SOCKTOP_VERIFY_NAME=1 to enable strict SAN checking."
-        );
+        // Note: hostname verification disabled (default). Set SOCKTOP_VERIFY_NAME=1 to enable strict SAN checking.
     }
     let cfg = Arc::new(cfg);
     let (ws, _) = tokio_tungstenite::connect_async_tls_with_config(

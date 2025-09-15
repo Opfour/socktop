@@ -20,12 +20,14 @@ use ratatui::{
 use tokio::time::sleep;
 
 use crate::history::{PerCoreHistory, push_capped};
+use crate::retry::{RetryTiming, compute_retry_timing};
 use crate::types::Metrics;
 use crate::ui::cpu::{
     PerCoreScrollDrag, draw_cpu_avg_graph, draw_per_core_bars, per_core_clamp,
     per_core_content_area, per_core_handle_key, per_core_handle_mouse,
     per_core_handle_scrollbar_mouse,
 };
+use crate::ui::modal::{ModalAction, ModalManager, ModalType};
 use crate::ui::processes::{ProcSortBy, processes_handle_key, processes_handle_mouse};
 use crate::ui::{
     disks::draw_disks, gpu::draw_gpu, header::draw_header, mem::draw_mem, net::draw_net_spark,
@@ -39,6 +41,13 @@ use socktop_connector::{
 // Constants for minimum intervals to ensure reasonable performance
 const MIN_METRICS_INTERVAL_MS: u64 = 100;
 const MIN_PROCESSES_INTERVAL_MS: u64 = 200;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConnectionState {
+    Connected,
+    Disconnected,
+    Reconnecting,
+}
 
 pub struct App {
     // Latest metrics + histories
@@ -75,9 +84,22 @@ pub struct App {
 
     // For reconnects
     ws_url: String,
+    tls_ca: Option<String>,
+    verify_hostname: bool,
     // Security / status flags
     pub is_tls: bool,
     pub has_token: bool,
+
+    // Modal system
+    pub modal_manager: crate::ui::modal::ModalManager,
+
+    // Connection state tracking
+    pub connection_state: ConnectionState,
+    last_connection_attempt: Instant,
+    original_disconnect_time: Option<Instant>, // Track when we first disconnected
+    connection_retry_count: u32,
+    last_auto_retry: Option<Instant>, // Track last automatic retry
+    replacement_connection: Option<socktop_connector::SocktopConnector>,
 }
 
 impl App {
@@ -108,8 +130,17 @@ impl App {
             disks_interval: Duration::from_secs(5),
             metrics_interval: Duration::from_millis(500),
             ws_url: String::new(),
+            tls_ca: None,
+            verify_hostname: false,
             is_tls: false,
             has_token: false,
+            modal_manager: ModalManager::new(),
+            connection_state: ConnectionState::Disconnected,
+            last_connection_attempt: Instant::now(),
+            original_disconnect_time: None,
+            connection_retry_count: 0,
+            last_auto_retry: None,
+            replacement_connection: None,
         }
     }
 
@@ -129,21 +160,163 @@ impl App {
         self
     }
 
+    /// Show a connection error modal
+    pub fn show_connection_error(&mut self, message: String) {
+        if !self.modal_manager.is_active() {
+            self.connection_state = ConnectionState::Disconnected;
+            // Set original disconnect time if this is the first disconnect
+            if self.original_disconnect_time.is_none() {
+                self.original_disconnect_time = Some(Instant::now());
+            }
+            self.modal_manager.push_modal(ModalType::ConnectionError {
+                message,
+                disconnected_at: self.original_disconnect_time.unwrap(),
+                retry_count: self.connection_retry_count,
+                auto_retry_countdown: self.seconds_until_next_auto_retry(),
+            });
+        }
+    }
+
+    /// Attempt to retry the connection
+    pub async fn retry_connection(&mut self) {
+        // This method is called from the normal event loop when connection is lost during operation
+        self.connection_retry_count += 1;
+        self.last_connection_attempt = Instant::now();
+        self.connection_state = ConnectionState::Reconnecting;
+
+        // Show retrying message
+        if self.modal_manager.is_active() {
+            self.modal_manager.pop_modal(); // Remove old modal
+        }
+        self.modal_manager.push_modal(ModalType::ConnectionError {
+            message: "Retrying connection...".to_string(),
+            disconnected_at: self
+                .original_disconnect_time
+                .unwrap_or(self.last_connection_attempt),
+            retry_count: self.connection_retry_count,
+            auto_retry_countdown: self.seconds_until_next_auto_retry(),
+        });
+
+        // Actually attempt to reconnect using stored parameters
+        let tls_ca_ref = self.tls_ca.as_deref();
+        match self
+            .try_connect(&self.ws_url, tls_ca_ref, self.verify_hostname)
+            .await
+        {
+            Ok(new_ws) => {
+                // Connection successful! Store the new connection for the event loop to pick up
+                self.replacement_connection = Some(new_ws);
+                self.mark_connected();
+                // The event loop will detect this and restart with the new connection
+            }
+            Err(e) => {
+                // Connection failed, update modal with error
+                self.modal_manager.pop_modal(); // Remove retrying modal
+                self.modal_manager.push_modal(ModalType::ConnectionError {
+                    message: format!("Retry failed: {e}"),
+                    disconnected_at: self
+                        .original_disconnect_time
+                        .unwrap_or(self.last_connection_attempt),
+                    retry_count: self.connection_retry_count,
+                    auto_retry_countdown: self.seconds_until_next_auto_retry(),
+                });
+                self.connection_state = ConnectionState::Disconnected;
+            }
+        }
+    }
+
+    /// Mark connection as successful and dismiss any error modals
+    pub fn mark_connected(&mut self) {
+        if self.connection_state != ConnectionState::Connected {
+            self.connection_state = ConnectionState::Connected;
+            self.connection_retry_count = 0;
+            self.original_disconnect_time = None; // Clear the original disconnect time
+            self.last_auto_retry = None; // Clear auto retry timer
+            // Remove connection error modal if it exists
+            if self.modal_manager.is_active() {
+                self.modal_manager.pop_modal();
+            }
+        }
+    }
+
+    /// Compute retry timing using pure policy function.
+    fn current_retry_timing(&self) -> RetryTiming {
+        compute_retry_timing(
+            self.connection_state == ConnectionState::Disconnected,
+            self.modal_manager.is_active(),
+            self.original_disconnect_time,
+            self.last_auto_retry,
+            Instant::now(),
+            Duration::from_secs(30),
+        )
+    }
+
+    /// Check if we should perform an automatic retry (every 30 seconds)
+    pub fn should_auto_retry(&self) -> bool {
+        self.current_retry_timing().should_retry_now
+    }
+
+    /// Get seconds until next automatic retry (returns None if inactive)
+    pub fn seconds_until_next_auto_retry(&self) -> Option<u64> {
+        self.current_retry_timing().seconds_until_retry
+    }
+
+    /// Perform automatic retry
+    pub async fn auto_retry_connection(&mut self) {
+        self.last_auto_retry = Some(Instant::now());
+        let tls_ca_ref = self.tls_ca.as_deref();
+
+        // Increment retry count for auto retries too
+        self.connection_retry_count += 1;
+
+        // Show retrying modal
+        self.modal_manager.pop_modal();
+        self.modal_manager.push_modal(ModalType::ConnectionError {
+            message: "Auto-retrying connection...".to_string(),
+            disconnected_at: self.original_disconnect_time.unwrap_or(Instant::now()),
+            retry_count: self.connection_retry_count,
+            auto_retry_countdown: self.seconds_until_next_auto_retry(),
+        });
+        self.connection_state = ConnectionState::Reconnecting;
+
+        // Attempt connection
+        match self
+            .try_connect(&self.ws_url, tls_ca_ref, self.verify_hostname)
+            .await
+        {
+            Ok(new_ws) => {
+                // Connection successful! Store the new connection for the event loop to pick up
+                self.replacement_connection = Some(new_ws);
+                self.mark_connected();
+                // The event loop will detect this and restart with the new connection
+            }
+            Err(e) => {
+                // Connection failed, update modal with error
+                self.modal_manager.pop_modal(); // Remove retrying modal
+                self.modal_manager.push_modal(ModalType::ConnectionError {
+                    message: format!("Auto-retry failed: {e}"),
+                    disconnected_at: self
+                        .original_disconnect_time
+                        .unwrap_or(self.last_connection_attempt),
+                    retry_count: self.connection_retry_count,
+                    auto_retry_countdown: self.seconds_until_next_auto_retry(),
+                });
+                self.connection_state = ConnectionState::Disconnected;
+            }
+        }
+    }
+
     pub async fn run(
         &mut self,
         url: &str,
         tls_ca: Option<&str>,
         verify_hostname: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Connect to agent
         self.ws_url = url.to_string();
-        let mut ws = if let Some(ca_path) = tls_ca {
-            connect_to_socktop_agent_with_tls(url, ca_path, verify_hostname).await?
-        } else {
-            connect_to_socktop_agent(url).await?
-        };
+        self.tls_ca = tls_ca.map(|s| s.to_string());
+        self.verify_hostname = verify_hostname;
 
-        // Terminal setup
+        // Terminal setup first - so we can show connection error modals
         enable_raw_mode()?;
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -151,19 +324,219 @@ impl App {
         let mut terminal = Terminal::new(backend)?;
         terminal.clear()?;
 
+        // Try to connect to agent
+        let ws = match self.try_connect(url, tls_ca, verify_hostname).await {
+            Ok(connector) => connector,
+            Err(e) => {
+                // Show initial connection error and enter the error loop until user exits or we connect.
+                self.show_connection_error(format!("Initial connection failed: {e}"));
+                if let Err(err) = self
+                    .run_with_connection_error(&mut terminal, url, tls_ca, verify_hostname)
+                    .await
+                {
+                    // Terminal teardown then propagate error
+                    disable_raw_mode()?;
+                    execute!(
+                        terminal.backend_mut(),
+                        LeaveAlternateScreen,
+                        DisableMouseCapture
+                    )?;
+                    terminal.show_cursor()?;
+                    return Err(err);
+                }
+
+                // If user chose to exit during error loop, mark quit and teardown.
+                if self.should_quit || self.connection_state != ConnectionState::Connected {
+                    disable_raw_mode()?;
+                    execute!(
+                        terminal.backend_mut(),
+                        LeaveAlternateScreen,
+                        DisableMouseCapture
+                    )?;
+                    terminal.show_cursor()?;
+                    return Ok(());
+                }
+
+                // We should have a replacement connection after successful retry.
+                match self.replacement_connection.take() {
+                    Some(conn) => conn,
+                    None => {
+                        // Defensive: no connector despite Connected state; exit gracefully.
+                        disable_raw_mode()?;
+                        execute!(
+                            terminal.backend_mut(),
+                            LeaveAlternateScreen,
+                            DisableMouseCapture
+                        )?;
+                        terminal.show_cursor()?;
+                        return Ok(());
+                    }
+                }
+            }
+        };
+
+        // Connection successful, mark as connected
+        self.mark_connected();
+
         // Main loop
-        let res = self.event_loop(&mut terminal, &mut ws).await;
+        let res = self.event_loop(&mut terminal, ws).await;
 
         // Teardown
         disable_raw_mode()?;
-        let backend = terminal.backend_mut();
-        execute!(backend, DisableMouseCapture, LeaveAlternateScreen)?;
+        execute!(
+            terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )?;
         terminal.show_cursor()?;
-
         res
     }
 
+    /// Helper method to attempt connection
+    async fn try_connect(
+        &self,
+        url: &str,
+        tls_ca: Option<&str>,
+        verify_hostname: bool,
+    ) -> Result<SocktopConnector, Box<dyn std::error::Error>> {
+        if let Some(ca_path) = tls_ca {
+            Ok(connect_to_socktop_agent_with_tls(url, ca_path, verify_hostname).await?)
+        } else {
+            Ok(connect_to_socktop_agent(url).await?)
+        }
+    }
+
+    /// Run the app with a connection error modal from the start
+    async fn run_with_connection_error<B: ratatui::backend::Backend>(
+        &mut self,
+        terminal: &mut Terminal<B>,
+        _url: &str,
+        _tls_ca: Option<&str>,
+        _verify_hostname: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        loop {
+            // Handle input for modal
+            while event::poll(Duration::from_millis(10))? {
+                if let Event::Key(k) = event::read()? {
+                    let action = self.modal_manager.handle_key(k.code);
+                    match action {
+                        ModalAction::ExitApp => {
+                            return Ok(());
+                        }
+                        ModalAction::RetryConnection => {
+                            // Show "Retrying..." message
+                            self.modal_manager.pop_modal(); // Remove old modal
+                            self.modal_manager.push_modal(ModalType::ConnectionError {
+                                message: "Retrying connection...".to_string(),
+                                disconnected_at: self
+                                    .original_disconnect_time
+                                    .unwrap_or(self.last_connection_attempt),
+                                retry_count: self.connection_retry_count,
+                                auto_retry_countdown: self.seconds_until_next_auto_retry(),
+                            });
+
+                            // Force a redraw to show the retrying message
+                            terminal.draw(|f| self.draw(f))?;
+
+                            // Update retry count
+                            self.connection_retry_count += 1;
+                            self.last_connection_attempt = Instant::now();
+
+                            // Try to reconnect using stored parameters
+                            let tls_ca_ref = self.tls_ca.as_deref();
+                            match self
+                                .try_connect(&self.ws_url, tls_ca_ref, self.verify_hostname)
+                                .await
+                            {
+                                Ok(ws) => {
+                                    // Connection successful!
+                                    // Show success message briefly
+                                    self.modal_manager.pop_modal(); // Remove retrying modal
+                                    self.modal_manager.push_modal(ModalType::ConnectionError {
+                                        message: "Connection restored! Starting...".to_string(),
+                                        disconnected_at: self
+                                            .original_disconnect_time
+                                            .unwrap_or(self.last_connection_attempt),
+                                        retry_count: self.connection_retry_count,
+                                        auto_retry_countdown: self.seconds_until_next_auto_retry(),
+                                    });
+                                    terminal.draw(|f| self.draw(f))?;
+                                    sleep(Duration::from_millis(500)).await; // Brief pause to show success
+
+                                    // Explicitly clear all modals first
+                                    while self.modal_manager.is_active() {
+                                        self.modal_manager.pop_modal();
+                                    }
+                                    // Mark as connected (this also clears modals but let's be explicit)
+                                    self.mark_connected();
+                                    // Force a redraw to show the cleared state
+                                    terminal.draw(|f| self.draw(f))?;
+                                    // Start normal event loop
+                                    return self.event_loop(terminal, ws).await;
+                                }
+                                Err(e) => {
+                                    // Update modal with new error and retry count
+                                    self.modal_manager.pop_modal(); // Remove retrying modal
+                                    self.modal_manager.push_modal(ModalType::ConnectionError {
+                                        message: format!("Retry failed: {e}"),
+                                        disconnected_at: self
+                                            .original_disconnect_time
+                                            .unwrap_or(self.last_connection_attempt),
+                                        retry_count: self.connection_retry_count,
+                                        auto_retry_countdown: self.seconds_until_next_auto_retry(),
+                                    });
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            // Check for automatic retry (every 30 seconds)
+            if self.should_auto_retry() {
+                self.auto_retry_connection().await;
+                // If auto-retry succeeded, transition directly into the normal event loop
+                if let Some(ws) = self.replacement_connection.take() {
+                    // Ensure we are marked connected (auto_retry_connection already does this)
+                    // Start the normal event loop using the newly established connection
+                    return self.event_loop(terminal, ws).await;
+                }
+            }
+
+            // Update countdown for connection error modal if active
+            if self.modal_manager.is_active() {
+                self.modal_manager
+                    .update_connection_error_countdown(self.seconds_until_next_auto_retry());
+            }
+
+            // Draw the modal
+            terminal.draw(|f| self.draw(f))?;
+            sleep(Duration::from_millis(50)).await;
+        }
+    }
+
     async fn event_loop<B: ratatui::backend::Backend>(
+        &mut self,
+        terminal: &mut Terminal<B>,
+        mut ws: SocktopConnector,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        loop {
+            // Main event loop
+            let result = self.run_event_loop_iteration(terminal, &mut ws).await;
+
+            // Check if we need to restart with a new connection
+            if let Some(new_ws) = self.replacement_connection.take() {
+                ws = new_ws;
+                continue; // Restart the loop with new connection
+            }
+
+            // If we get here and there's no replacement, return the result
+            return result;
+        }
+    }
+
+    async fn run_event_loop_iteration<B: ratatui::backend::Backend>(
         &mut self,
         terminal: &mut Terminal<B>,
         ws: &mut SocktopConnector,
@@ -173,6 +546,38 @@ impl App {
             while event::poll(Duration::from_millis(10))? {
                 match event::read()? {
                     Event::Key(k) => {
+                        // Handle modal input first - if a modal consumes the input, don't process normal keys
+                        if self.modal_manager.is_active() {
+                            let action = self.modal_manager.handle_key(k.code);
+                            match action {
+                                ModalAction::ExitApp => {
+                                    self.should_quit = true;
+                                    continue; // Skip normal key processing
+                                }
+                                ModalAction::RetryConnection => {
+                                    self.retry_connection().await;
+                                    // Check if retry succeeded and we have a replacement connection
+                                    if self.replacement_connection.is_some() {
+                                        // Signal that we want to restart with new connection
+                                        // Return from this iteration so the outer loop can restart
+                                        return Ok(());
+                                    }
+                                    continue; // Skip normal key processing
+                                }
+                                ModalAction::Cancel | ModalAction::Dismiss => {
+                                    // Modal was dismissed, continue to normal processing
+                                }
+                                ModalAction::Confirm => {
+                                    // Handle confirmation action here if needed in the future
+                                }
+                                ModalAction::None => {
+                                    // Modal is still active but didn't consume the key
+                                    continue; // Skip normal key processing
+                                }
+                            }
+                        }
+
+                        // Normal key handling (only if no modal is active or modal didn't consume the key)
                         if matches!(
                             k.code,
                             KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc
@@ -284,37 +689,65 @@ impl App {
                     _ => {}
                 }
             }
+
+            // Check for automatic retry (every 30 seconds)
+            if self.should_auto_retry() {
+                self.auto_retry_connection().await;
+                // Check if retry succeeded and we have a replacement connection
+                if self.replacement_connection.is_some() {
+                    // Signal that we want to restart with new connection
+                    return Ok(());
+                }
+            }
+
             if self.should_quit {
                 break;
             }
 
             // Fetch and update
-            if let Ok(response) = ws.request(AgentRequest::Metrics).await {
-                if let AgentResponse::Metrics(m) = response {
+            match ws.request(AgentRequest::Metrics).await {
+                Ok(AgentResponse::Metrics(m)) => {
+                    self.mark_connected(); // Mark as connected on successful request
                     self.update_with_metrics(m);
-                }
 
-                // Only poll processes every 2s
-                if self.last_procs_poll.elapsed() >= self.procs_interval {
-                    if let Ok(AgentResponse::Processes(procs)) =
-                        ws.request(AgentRequest::Processes).await
-                        && let Some(mm) = self.last_metrics.as_mut()
-                    {
-                        mm.top_processes = procs.top_processes;
-                        mm.process_count = Some(procs.process_count);
+                    // Only poll processes every 2s
+                    if self.last_procs_poll.elapsed() >= self.procs_interval {
+                        if let Ok(AgentResponse::Processes(procs)) =
+                            ws.request(AgentRequest::Processes).await
+                            && let Some(mm) = self.last_metrics.as_mut()
+                        {
+                            mm.top_processes = procs.top_processes;
+                            mm.process_count = Some(procs.process_count);
+                        }
+                        self.last_procs_poll = Instant::now();
                     }
-                    self.last_procs_poll = Instant::now();
-                }
 
-                // Only poll disks every 5s
-                if self.last_disks_poll.elapsed() >= self.disks_interval {
-                    if let Ok(AgentResponse::Disks(disks)) = ws.request(AgentRequest::Disks).await
-                        && let Some(mm) = self.last_metrics.as_mut()
-                    {
-                        mm.disks = disks;
+                    // Only poll disks every 5s
+                    if self.last_disks_poll.elapsed() >= self.disks_interval {
+                        if let Ok(AgentResponse::Disks(disks)) =
+                            ws.request(AgentRequest::Disks).await
+                            && let Some(mm) = self.last_metrics.as_mut()
+                        {
+                            mm.disks = disks;
+                        }
+                        self.last_disks_poll = Instant::now();
                     }
-                    self.last_disks_poll = Instant::now();
                 }
+                Err(e) => {
+                    // Connection error - show modal if not already shown
+                    let error_message = format!("Failed to fetch metrics: {e}");
+                    self.show_connection_error(error_message);
+                }
+                _ => {
+                    // Unexpected response type
+                    self.show_connection_error("Unexpected response from agent".to_string());
+                }
+            }
+
+            // Update countdown for connection error modal if active
+            if self.modal_manager.is_active() {
+                self.modal_manager
+                    .update_connection_error_countdown(self.seconds_until_next_auto_retry());
             }
 
             // Draw
@@ -487,6 +920,11 @@ impl App {
             self.procs_scroll_offset,
             self.procs_sort_by,
         );
+
+        // Render modals on top of everything else
+        if self.modal_manager.is_active() {
+            self.modal_manager.render(f);
+        }
     }
 }
 
@@ -518,8 +956,17 @@ impl Default for App {
             disks_interval: Duration::from_secs(5),
             metrics_interval: Duration::from_millis(500),
             ws_url: String::new(),
+            tls_ca: None,
+            verify_hostname: false,
             is_tls: false,
             has_token: false,
+            modal_manager: ModalManager::new(),
+            connection_state: ConnectionState::Disconnected,
+            last_connection_attempt: Instant::now(),
+            original_disconnect_time: None,
+            connection_retry_count: 0,
+            last_auto_retry: None,
+            replacement_connection: None,
         }
     }
 }
