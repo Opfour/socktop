@@ -1,3 +1,7 @@
 /target
 .vscode/
 /socktop-wasm-test/target
+
+# Documentation files from development sessions (context-specific, not for public repo)
+/OPTIMIZATION_PROCESS_DETAILS.md
+/THREAD_SUPPORT.md

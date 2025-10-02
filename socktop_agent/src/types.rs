@@ -47,3 +47,76 @@ pub struct ProcessesPayload {
     pub process_count: usize,
     pub top_processes: Vec<ProcessInfo>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ThreadInfo {
+    pub tid: u32,             // Thread ID
+    pub name: String,         // Thread name (from /proc/{pid}/task/{tid}/comm)
+    pub cpu_time_user: u64,   // User CPU time in microseconds
+    pub cpu_time_system: u64, // System CPU time in microseconds
+    pub status: String,       // Thread status (Running, Sleeping, etc.)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DetailedProcessInfo {
+    pub pid: u32,
+    pub name: String,
+    pub command: String,
+    pub cpu_usage: f32,
+    pub mem_bytes: u64,
+    pub virtual_mem_bytes: u64,
+    pub shared_mem_bytes: Option<u64>,
+    pub thread_count: u32,
+    pub fd_count: Option<u32>,
+    pub status: String,
+    pub parent_pid: Option<u32>,
+    pub user_id: u32,
+    pub group_id: u32,
+    pub start_time: u64,      // Unix timestamp
+    pub cpu_time_user: u64,   // Microseconds
+    pub cpu_time_system: u64, // Microseconds
+    pub read_bytes: Option<u64>,
+    pub write_bytes: Option<u64>,
+    pub working_directory: Option<String>,
+    pub executable_path: Option<String>,
+    pub child_processes: Vec<DetailedProcessInfo>,
+    pub threads: Vec<ThreadInfo>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProcessMetricsResponse {
+    pub process: DetailedProcessInfo,
+    pub cached_at: u64, // Unix timestamp when this data was cached
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct JournalEntry {
+    pub timestamp: String, // ISO 8601 formatted timestamp
+    pub priority: LogLevel,
+    pub message: String,
+    pub unit: Option<String>, // systemd unit name
+    pub pid: Option<u32>,
+    pub comm: Option<String>, // process command name
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum LogLevel {
+    Emergency = 0,
+    Alert = 1,
+    Critical = 2,
+    Error = 3,
+    Warning = 4,
+    Notice = 5,
+    Info = 6,
+    Debug = 7,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct JournalResponse {
+    pub entries: Vec<JournalEntry>,
+    pub total_count: u32,
+    pub truncated: bool,
+    pub cached_at: u64, // Unix timestamp when this data was cached
+}

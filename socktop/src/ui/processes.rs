@@ -12,7 +12,10 @@ use std::cmp::Ordering;
 
 use crate::types::Metrics;
 use crate::ui::cpu::{per_core_clamp, per_core_handle_scrollbar_mouse};
-use crate::ui::theme::{SB_ARROW, SB_THUMB, SB_TRACK};
+use crate::ui::theme::{
+    PROCESS_SELECTION_BG, PROCESS_SELECTION_FG, PROCESS_TOOLTIP_BG, PROCESS_TOOLTIP_FG, SB_ARROW,
+    SB_THUMB, SB_TRACK,
+};
 use crate::ui::util::human;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -37,6 +40,8 @@ pub fn draw_top_processes(
     m: Option<&Metrics>,
     scroll_offset: usize,
     sort_by: ProcSortBy,
+    selected_process_pid: Option<u32>,
+    selected_process_index: Option<usize>,
 ) {
     // Draw outer block and title
     let Some(mm) = m else { return };
@@ -110,11 +115,28 @@ pub fn draw_top_processes(
             _ => Color::Red,
         };
 
-        let emphasis = if (cpu_val - peak_cpu).abs() < f32::EPSILON {
+        let mut emphasis = if (cpu_val - peak_cpu).abs() < f32::EPSILON {
             Style::default().add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
+
+        // Check if this process is selected - prioritize PID matching
+        let is_selected = if let Some(selected_pid) = selected_process_pid {
+            selected_pid == p.pid
+        } else if let Some(selected_idx) = selected_process_index {
+            selected_idx == ix // ix is the absolute index in the sorted list
+        } else {
+            false
+        };
+
+        // Apply selection highlighting
+        if is_selected {
+            emphasis = emphasis
+                .bg(PROCESS_SELECTION_BG)
+                .fg(PROCESS_SELECTION_FG)
+                .add_modifier(Modifier::BOLD);
+        }
 
         let cpu_str = fmt_cpu_pct(cpu_val);
 
@@ -150,6 +172,47 @@ pub fn draw_top_processes(
         .header(header)
         .column_spacing(1);
     f.render_widget(table, content);
+
+    // Draw tooltip if a process is selected
+    if let Some(selected_pid) = selected_process_pid {
+        // Find the selected process to get its name
+        let process_info = if let Some(metrics) = m {
+            metrics
+                .top_processes
+                .iter()
+                .find(|p| p.pid == selected_pid)
+                .map(|p| format!("PID {} • {}", p.pid, p.name))
+                .unwrap_or_else(|| format!("PID {selected_pid}"))
+        } else {
+            format!("PID {selected_pid}")
+        };
+
+        let tooltip_text = format!("{process_info} | Enter for details • X to unselect");
+        let tooltip_width = tooltip_text.len() as u16 + 2; // Add padding
+        let tooltip_height = 3;
+
+        // Position tooltip at bottom-right of the processes area
+        if area.width > tooltip_width + 2 && area.height > tooltip_height + 1 {
+            let tooltip_area = Rect {
+                x: area.x + area.width.saturating_sub(tooltip_width + 1),
+                y: area.y + area.height.saturating_sub(tooltip_height + 1),
+                width: tooltip_width,
+                height: tooltip_height,
+            };
+
+            let tooltip_block = Block::default().borders(Borders::ALL).style(
+                Style::default()
+                    .bg(PROCESS_TOOLTIP_BG)
+                    .fg(PROCESS_TOOLTIP_FG),
+            );
+
+            let tooltip_paragraph = Paragraph::new(tooltip_text)
+                .block(tooltip_block)
+                .wrap(ratatui::widgets::Wrap { trim: true });
+
+            f.render_widget(tooltip_paragraph, tooltip_area);
+        }
+    }
 
     // Draw scrollbar like CPU pane
     let scroll_area = Rect {
@@ -191,6 +254,8 @@ fn fmt_cpu_pct(v: f32) -> String {
 }
 
 /// Handle keyboard scrolling (Up/Down/PageUp/PageDown/Home/End)
+/// LEGACY: Use processes_handle_key_with_selection for enhanced functionality
+#[allow(dead_code)]
 pub fn processes_handle_key(
     scroll_offset: &mut usize,
     key: crossterm::event::KeyEvent,
@@ -199,8 +264,44 @@ pub fn processes_handle_key(
     crate::ui::cpu::per_core_handle_key(scroll_offset, key, page_size);
 }
 
+/// Enhanced keyboard handler that also manages process selection
+pub fn processes_handle_key_with_selection(
+    _scroll_offset: &mut usize,
+    selected_process_pid: &mut Option<u32>,
+    selected_process_index: &mut Option<usize>,
+    key: crossterm::event::KeyEvent,
+    _page_size: usize,
+    _total_rows: usize,
+    _metrics: Option<&Metrics>,
+) -> bool {
+    use crossterm::event::KeyCode;
+
+    match key.code {
+        KeyCode::Char('x') | KeyCode::Char('X') => {
+            // Unselect any selected process
+            if selected_process_pid.is_some() || selected_process_index.is_some() {
+                *selected_process_pid = None;
+                *selected_process_index = None;
+                true // Handled
+            } else {
+                false // No selection to clear
+            }
+        }
+        KeyCode::Enter => {
+            // Signal that Enter was pressed with a selection
+            selected_process_pid.is_some() // Return true if we have a selection to handle
+        }
+        _ => {
+            // No other keys handled - let scrollbar handle all navigation
+            false
+        }
+    }
+}
+
 /// Handle mouse for content scrolling and scrollbar dragging.
 /// Returns Some(new_sort) if the header "CPU %" or "Mem" was clicked.
+/// LEGACY: Use processes_handle_mouse_with_selection for enhanced functionality
+#[allow(dead_code)]
 pub fn processes_handle_mouse(
     scroll_offset: &mut usize,
     drag: &mut Option<crate::ui::cpu::PerCoreScrollDrag>,
@@ -260,6 +361,130 @@ pub fn processes_handle_mouse(
     per_core_clamp(
         scroll_offset,
         total_rows,
+        (content.height.saturating_sub(1)) as usize,
+    );
+    None
+}
+
+/// Parameters for process mouse event handling
+pub struct ProcessMouseParams<'a> {
+    pub scroll_offset: &'a mut usize,
+    pub selected_process_pid: &'a mut Option<u32>,
+    pub selected_process_index: &'a mut Option<usize>,
+    pub drag: &'a mut Option<crate::ui::cpu::PerCoreScrollDrag>,
+    pub mouse: MouseEvent,
+    pub area: Rect,
+    pub total_rows: usize,
+    pub metrics: Option<&'a Metrics>,
+    pub sort_by: ProcSortBy,
+}
+
+/// Enhanced mouse handler that also manages process selection
+/// Returns Some(new_sort) if the header was clicked, or handles row selection
+pub fn processes_handle_mouse_with_selection(params: ProcessMouseParams) -> Option<ProcSortBy> {
+    // Inner and content areas (match draw_top_processes)
+    let inner = Rect {
+        x: params.area.x + 1,
+        y: params.area.y + 1,
+        width: params.area.width.saturating_sub(2),
+        height: params.area.height.saturating_sub(2),
+    };
+    if inner.height == 0 || inner.width <= 2 {
+        return None;
+    }
+    let content = Rect {
+        x: inner.x,
+        y: inner.y,
+        width: inner.width.saturating_sub(2),
+        height: inner.height,
+    };
+
+    // Scrollbar interactions (click arrows/page/drag)
+    per_core_handle_scrollbar_mouse(
+        params.scroll_offset,
+        params.drag,
+        params.mouse,
+        params.area,
+        params.total_rows,
+    );
+
+    // Wheel scrolling when inside the content
+    crate::ui::cpu::per_core_handle_mouse(
+        params.scroll_offset,
+        params.mouse,
+        content,
+        content.height as usize,
+    );
+
+    // Header click to change sort
+    let header_area = Rect {
+        x: content.x,
+        y: content.y,
+        width: content.width,
+        height: 1,
+    };
+    let inside_header = params.mouse.row == header_area.y
+        && params.mouse.column >= header_area.x
+        && params.mouse.column < header_area.x + header_area.width;
+
+    if inside_header && matches!(params.mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+        // Split header into the same columns
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(COLS.to_vec())
+            .split(header_area);
+        if params.mouse.column >= cols[2].x && params.mouse.column < cols[2].x + cols[2].width {
+            return Some(ProcSortBy::CpuDesc);
+        }
+        if params.mouse.column >= cols[3].x && params.mouse.column < cols[3].x + cols[3].width {
+            return Some(ProcSortBy::MemDesc);
+        }
+    }
+
+    // Row click for process selection
+    let data_start_row = content.y + 1; // Skip header
+    let data_area_height = content.height.saturating_sub(1); // Exclude header
+
+    if matches!(params.mouse.kind, MouseEventKind::Down(MouseButton::Left))
+        && params.mouse.row >= data_start_row
+        && params.mouse.row < data_start_row + data_area_height
+        && params.mouse.column >= content.x
+        && params.mouse.column < content.x + content.width
+    {
+        let clicked_row = (params.mouse.row - data_start_row) as usize;
+
+        // Find the actual process using the same sorting logic as the drawing code
+        if let Some(m) = params.metrics {
+            // Create the same sorted index array as in draw_top_processes
+            let mut idxs: Vec<usize> = (0..m.top_processes.len()).collect();
+            match params.sort_by {
+                ProcSortBy::CpuDesc => idxs.sort_by(|&a, &b| {
+                    let aa = m.top_processes[a].cpu_usage;
+                    let bb = m.top_processes[b].cpu_usage;
+                    bb.partial_cmp(&aa).unwrap_or(std::cmp::Ordering::Equal)
+                }),
+                ProcSortBy::MemDesc => idxs.sort_by(|&a, &b| {
+                    let aa = m.top_processes[a].mem_bytes;
+                    let bb = m.top_processes[b].mem_bytes;
+                    bb.cmp(&aa)
+                }),
+            }
+
+            // Calculate which process was actually clicked based on sorted order
+            let visible_process_position = *params.scroll_offset + clicked_row;
+            if visible_process_position < idxs.len() {
+                let actual_process_index = idxs[visible_process_position];
+                let clicked_process = &m.top_processes[actual_process_index];
+                *params.selected_process_pid = Some(clicked_process.pid);
+                *params.selected_process_index = Some(actual_process_index);
+            }
+        }
+    }
+
+    // Clamp to valid range
+    per_core_clamp(
+        params.scroll_offset,
+        params.total_rows,
         (content.height.saturating_sub(1)) as usize,
     );
     None

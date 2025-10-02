@@ -6,7 +6,8 @@ use crate::{AgentRequest, AgentResponse};
 
 #[cfg(feature = "networking")]
 use crate::networking::{
-    WsStream, connect_to_agent, request_disks, request_metrics, request_processes,
+    WsStream, connect_to_agent, request_disks, request_journal_entries, request_metrics,
+    request_process_metrics, request_processes,
 };
 
 #[cfg(all(feature = "wasm", not(feature = "networking")))]
@@ -71,6 +72,20 @@ impl SocktopConnector {
                     .await
                     .ok_or_else(|| ConnectorError::invalid_response("Failed to get processes"))?;
                 Ok(AgentResponse::Processes(processes))
+            }
+            AgentRequest::ProcessMetrics { pid } => {
+                let process_metrics =
+                    request_process_metrics(stream, pid).await.ok_or_else(|| {
+                        ConnectorError::invalid_response("Failed to get process metrics")
+                    })?;
+                Ok(AgentResponse::ProcessMetrics(process_metrics))
+            }
+            AgentRequest::JournalEntries { pid } => {
+                let journal_entries =
+                    request_journal_entries(stream, pid).await.ok_or_else(|| {
+                        ConnectorError::invalid_response("Failed to get journal entries")
+                    })?;
+                Ok(AgentResponse::JournalEntries(journal_entries))
             }
         }
     }

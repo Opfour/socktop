@@ -161,7 +161,8 @@ pub use config::ConnectorConfig;
 pub use connector_impl::SocktopConnector;
 pub use error::{ConnectorError, Result};
 pub use types::{
-    AgentRequest, AgentResponse, DiskInfo, GpuInfo, Metrics, NetworkInfo, ProcessInfo,
+    AgentRequest, AgentResponse, DetailedProcessInfo, DiskInfo, GpuInfo, JournalEntry,
+    JournalResponse, LogLevel, Metrics, NetworkInfo, ProcessInfo, ProcessMetricsResponse,
     ProcessesPayload,
 };
 
