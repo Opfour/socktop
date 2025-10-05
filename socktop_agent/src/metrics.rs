@@ -608,18 +608,13 @@ fn enumerate_child_processes_lightweight(
     // This is much faster than refresh_processes_specifics(All)
     if let Ok(entries) = fs::read_dir("/proc") {
         for entry in entries.flatten() {
-            if let Ok(file_name) = entry.file_name().into_string() {
-                if let Ok(pid) = file_name.parse::<u32>() {
-                    // Check if this process is a child of our target
-                    if let Some(child_parent_pid) = read_parent_pid_from_proc(pid) {
-                        if child_parent_pid == parent_pid {
-                            // Found a child! Collect its details from /proc
-                            if let Some(child_info) = collect_process_info_from_proc(pid, system) {
-                                children.push(child_info);
-                            }
-                        }
-                    }
-                }
+            if let Ok(file_name) = entry.file_name().into_string()
+                && let Ok(pid) = file_name.parse::<u32>()
+                && let Some(child_parent_pid) = read_parent_pid_from_proc(pid)
+                && child_parent_pid == parent_pid
+                && let Some(child_info) = collect_process_info_from_proc(pid, system)
+            {
+                children.push(child_info);
             }
         }
     }
@@ -673,10 +668,10 @@ fn collect_process_info_from_proc(
                     if let Some(kb) = value.split_whitespace().next() {
                         mem_bytes = kb.parse::<u64>().unwrap_or(0) * 1024;
                     }
-                } else if let Some(value) = line.strip_prefix("VmSize:") {
-                    if let Some(kb) = value.split_whitespace().next() {
-                        virtual_mem_bytes = kb.parse::<u64>().unwrap_or(0) * 1024;
-                    }
+                } else if let Some(value) = line.strip_prefix("VmSize:")
+                    && let Some(kb) = value.split_whitespace().next()
+                {
+                    virtual_mem_bytes = kb.parse::<u64>().unwrap_or(0) * 1024;
                 }
             }
 

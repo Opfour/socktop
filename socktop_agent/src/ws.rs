@@ -114,87 +114,85 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 drop(cache); // Explicit drop to release mutex early
             }
             Message::Text(ref text) if text.starts_with("get_process_metrics:") => {
-                if let Some(pid_str) = text.strip_prefix("get_process_metrics:") {
-                    if let Ok(pid) = pid_str.parse::<u32>() {
-                        let ttl = std::time::Duration::from_millis(250); // 250ms TTL
+                if let Some(pid_str) = text.strip_prefix("get_process_metrics:")
+                    && let Ok(pid) = pid_str.parse::<u32>()
+                {
+                    let ttl = std::time::Duration::from_millis(250); // 250ms TTL
 
-                        // Check cache first
+                    // Check cache first
+                    {
+                        let cache = state.cache_process_metrics.lock().await;
+                        if let Some(entry) = cache.get(&pid)
+                            && entry.is_fresh(ttl)
+                            && let Some(cached_response) = entry.get()
                         {
-                            let cache = state.cache_process_metrics.lock().await;
-                            if let Some(entry) = cache.get(&pid) {
-                                if entry.is_fresh(ttl)
-                                    && let Some(cached_response) = entry.get()
-                                {
-                                    let _ = send_json(&mut socket, cached_response).await;
-                                    continue;
-                                }
-                            }
+                            let _ = send_json(&mut socket, cached_response).await;
+                            continue;
                         }
+                    }
 
-                        // Collect fresh data
-                        match crate::metrics::collect_process_metrics(pid, &state).await {
-                            Ok(response) => {
-                                // Cache the response
-                                {
-                                    let mut cache = state.cache_process_metrics.lock().await;
-                                    cache
-                                        .entry(pid)
-                                        .or_insert_with(crate::state::CacheEntry::new)
-                                        .set(response.clone());
-                                }
-                                let _ = send_json(&mut socket, &response).await;
+                    // Collect fresh data
+                    match crate::metrics::collect_process_metrics(pid, &state).await {
+                        Ok(response) => {
+                            // Cache the response
+                            {
+                                let mut cache = state.cache_process_metrics.lock().await;
+                                cache
+                                    .entry(pid)
+                                    .or_insert_with(crate::state::CacheEntry::new)
+                                    .set(response.clone());
                             }
-                            Err(err) => {
-                                let error_response = serde_json::json!({
-                                    "error": err,
-                                    "request": "get_process_metrics",
-                                    "pid": pid
-                                });
-                                let _ = send_json(&mut socket, &error_response).await;
-                            }
+                            let _ = send_json(&mut socket, &response).await;
+                        }
+                        Err(err) => {
+                            let error_response = serde_json::json!({
+                                "error": err,
+                                "request": "get_process_metrics",
+                                "pid": pid
+                            });
+                            let _ = send_json(&mut socket, &error_response).await;
                         }
                     }
                 }
             }
             Message::Text(ref text) if text.starts_with("get_journal_entries:") => {
-                if let Some(pid_str) = text.strip_prefix("get_journal_entries:") {
-                    if let Ok(pid) = pid_str.parse::<u32>() {
-                        let ttl = std::time::Duration::from_secs(1); // 1s TTL
+                if let Some(pid_str) = text.strip_prefix("get_journal_entries:")
+                    && let Ok(pid) = pid_str.parse::<u32>()
+                {
+                    let ttl = std::time::Duration::from_secs(1); // 1s TTL
 
-                        // Check cache first
+                    // Check cache first
+                    {
+                        let cache = state.cache_journal_entries.lock().await;
+                        if let Some(entry) = cache.get(&pid)
+                            && entry.is_fresh(ttl)
+                            && let Some(cached_response) = entry.get()
                         {
-                            let cache = state.cache_journal_entries.lock().await;
-                            if let Some(entry) = cache.get(&pid) {
-                                if entry.is_fresh(ttl)
-                                    && let Some(cached_response) = entry.get()
-                                {
-                                    let _ = send_json(&mut socket, cached_response).await;
-                                    continue;
-                                }
-                            }
+                            let _ = send_json(&mut socket, cached_response).await;
+                            continue;
                         }
+                    }
 
-                        // Collect fresh data
-                        match crate::metrics::collect_journal_entries(pid) {
-                            Ok(response) => {
-                                // Cache the response
-                                {
-                                    let mut cache = state.cache_journal_entries.lock().await;
-                                    cache
-                                        .entry(pid)
-                                        .or_insert_with(crate::state::CacheEntry::new)
-                                        .set(response.clone());
-                                }
-                                let _ = send_json(&mut socket, &response).await;
+                    // Collect fresh data
+                    match crate::metrics::collect_journal_entries(pid) {
+                        Ok(response) => {
+                            // Cache the response
+                            {
+                                let mut cache = state.cache_journal_entries.lock().await;
+                                cache
+                                    .entry(pid)
+                                    .or_insert_with(crate::state::CacheEntry::new)
+                                    .set(response.clone());
                             }
-                            Err(err) => {
-                                let error_response = serde_json::json!({
-                                    "error": err,
-                                    "request": "get_journal_entries",
-                                    "pid": pid
-                                });
-                                let _ = send_json(&mut socket, &error_response).await;
-                            }
+                            let _ = send_json(&mut socket, &response).await;
+                        }
+                        Err(err) => {
+                            let error_response = serde_json::json!({
+                                "error": err,
+                                "request": "get_journal_entries",
+                                "pid": pid
+                            });
+                            let _ = send_json(&mut socket, &error_response).await;
                         }
                     }
                 }

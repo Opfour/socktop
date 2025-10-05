@@ -621,19 +621,19 @@ impl App {
                                 }
                                 ModalAction::SwitchToParentProcess(_current_pid) => {
                                     // Get parent PID from current process details
-                                    if let Some(details) = &self.process_details {
-                                        if let Some(parent_pid) = details.process.parent_pid {
-                                            // Clear current process details
-                                            self.clear_process_details();
-                                            // Update selected process to parent
-                                            self.selected_process_pid = Some(parent_pid);
-                                            // Open modal for parent process
-                                            self.modal_manager.push_modal(
-                                                crate::ui::modal::ModalType::ProcessDetails {
-                                                    pid: parent_pid,
-                                                },
-                                            );
-                                        }
+                                    if let Some(details) = &self.process_details
+                                        && let Some(parent_pid) = details.process.parent_pid
+                                    {
+                                        // Clear current process details
+                                        self.clear_process_details();
+                                        // Update selected process to parent
+                                        self.selected_process_pid = Some(parent_pid);
+                                        // Open modal for parent process
+                                        self.modal_manager.push_modal(
+                                            crate::ui::modal::ModalType::ProcessDetails {
+                                                pid: parent_pid,
+                                            },
+                                        );
                                     }
                                     continue;
                                 }
@@ -710,11 +710,12 @@ impl App {
                         }
 
                         // Check if Enter was pressed with a process selected
-                        if process_handled && k.code == KeyCode::Enter {
-                            if let Some(selected_pid) = self.selected_process_pid {
-                                self.modal_manager
-                                    .push_modal(ModalType::ProcessDetails { pid: selected_pid });
-                            }
+                        if process_handled
+                            && k.code == KeyCode::Enter
+                            && let Some(selected_pid) = self.selected_process_pid
+                        {
+                            self.modal_manager
+                                .push_modal(ModalType::ProcessDetails { pid: selected_pid });
                         }
 
                         let total_rows = self
