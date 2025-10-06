@@ -15,7 +15,9 @@ pub struct DiskInfo {
     pub name: String,
     pub total: u64,
     pub available: u64,
+    #[serde(default)]
     pub temperature: Option<f32>,
+    #[serde(default)]
     pub is_partition: bool,
 }
 
