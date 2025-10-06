@@ -338,21 +338,27 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
         let mut components = state.components.lock().await;
         components.refresh(false);
         let mut composite_temps = Vec::new();
-        
+
         for c in components.iter() {
             let label = c.label().to_ascii_lowercase();
-            
+
             // Collect all "Composite" temperatures (these are NVMe drives)
-            if label == "composite" && let Some(temp) = c.temperature() {
+            if label == "composite"
+                && let Some(temp) = c.temperature()
+            {
+                tracing::debug!("Found Composite temp: {}°C", temp);
                 composite_temps.push(temp);
             }
         }
-        
+
         // Store composite temps indexed by their order (nvme0n1, nvme1n1, nvme2n1, etc.)
         let mut temps = std::collections::HashMap::new();
         for (idx, temp) in composite_temps.iter().enumerate() {
-            temps.insert(format!("nvme{}n1", idx), *temp);
+            let key = format!("nvme{}n1", idx);
+            tracing::debug!("Mapping {} -> {}°C", key, temp);
+            temps.insert(key, *temp);
         }
+        tracing::debug!("Final disk_temps map: {:?}", temps);
         temps
     };
 
@@ -363,12 +369,12 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
         .iter()
         .filter_map(|d| {
             let name = d.name().to_string_lossy().into_owned();
-            
+
             // Skip if we've already seen this partition/device
             if !seen_partitions.insert(name.clone()) {
                 return None;
             }
-            
+
             // Determine if this is a partition
             let is_partition = name.contains("p1")
                 || name.contains("p2")
@@ -386,11 +392,16 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
             // Try to find temperature for this disk
             let temperature = disk_temps.iter().find_map(|(key, &temp)| {
                 if name.starts_with(key) {
+                    tracing::debug!("Matched {} with key {} -> {}°C", name, key, temp);
                     Some(temp)
                 } else {
                     None
                 }
             });
+            
+            if temperature.is_none() && !name.starts_with("loop") && !name.starts_with("ram") {
+                tracing::debug!("No temperature found for disk: {}", name);
+            }
 
             Some(DiskInfo {
                 name,
@@ -428,17 +439,26 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
                 partition.name.trim_end_matches(char::is_numeric)
             };
 
+            // Look up temperature for the PARENT disk, not the partition
+            let parent_temp = disk_temps.iter().find_map(|(key, &temp)| {
+                if parent_name.starts_with(key) {
+                    Some(temp)
+                } else {
+                    None
+                }
+            });
+
             // Aggregate partition stats into parent
             let entry = parent_disks.entry(parent_name.to_string()).or_insert((
                 0,
                 0,
-                partition.temperature,
+                parent_temp,
             ));
             entry.0 += partition.total;
             entry.1 += partition.available;
-            // Keep temperature if any partition has it
+            // Keep temperature if any partition has it (or if we just found one)
             if entry.2.is_none() {
-                entry.2 = partition.temperature;
+                entry.2 = parent_temp;
             }
         }
     }
