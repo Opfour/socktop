@@ -1006,7 +1006,7 @@ pub async fn collect_process_metrics(
             // Fallback if /proc read fails (permission issue)
             (0, 0)
         };
-    
+
     #[cfg(not(target_os = "linux"))]
     let (user_id, group_id) = (0, 0);
 
@@ -1029,13 +1029,23 @@ pub async fn collect_process_metrics(
 
             (Some(rchar), Some(wchar))
         } else {
-            // Fallback to sysinfo if we can't read /proc (permissions, non-Linux, etc.)
+            // Fallback to sysinfo if we can't read /proc (permissions)
             let disk_usage = process.disk_usage();
             (
                 Some(disk_usage.total_read_bytes),
                 Some(disk_usage.total_written_bytes),
             )
         };
+    
+    #[cfg(not(target_os = "linux"))]
+    let (read_bytes, write_bytes) = {
+        let disk_usage = process.disk_usage();
+        (
+            Some(disk_usage.total_read_bytes),
+            Some(disk_usage.total_written_bytes),
+        )
+    };
+    
     let working_directory = process.cwd().map(|p| p.to_string_lossy().to_string());
     let executable_path = process.exe().map(|p| p.to_string_lossy().to_string());
 
