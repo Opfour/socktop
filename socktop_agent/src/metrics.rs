@@ -336,14 +336,16 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
     // NVMe temps show up as "Composite" under different chip names
     let disk_temps = {
         let mut components = state.components.lock().await;
-        components.refresh(true);  // true = refresh values, not just the list
+        components.refresh(true); // true = refresh values, not just the list
+
         let mut composite_temps = Vec::new();
 
         for c in components.iter() {
             let label = c.label().to_ascii_lowercase();
 
             // Collect all "Composite" temperatures (these are NVMe drives)
-            if label == "composite"
+            // Labels are like "nvme Composite CT1000N7BSS503" or "nvme Composite Sabrent Rocket 4.0"
+            if label.contains("composite")
                 && let Some(temp) = c.temperature()
             {
                 tracing::debug!("Found Composite temp: {}°C", temp);
@@ -440,8 +442,10 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
             };
 
             // Look up temperature for the PARENT disk, not the partition
+            // Strip /dev/ prefix if present for matching
+            let parent_name_for_match = parent_name.strip_prefix("/dev/").unwrap_or(parent_name);
             let parent_temp = disk_temps.iter().find_map(|(key, &temp)| {
-                if parent_name.starts_with(key) {
+                if parent_name_for_match.starts_with(key) {
                     Some(temp)
                 } else {
                     None
