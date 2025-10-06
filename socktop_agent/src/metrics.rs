@@ -1,7 +1,5 @@
 //! Metrics collection using sysinfo for socktop_agent.
 
-use std::fs;
-
 use crate::gpu::collect_all_gpus;
 use crate::state::AppState;
 use crate::types::{
@@ -11,6 +9,8 @@ use crate::types::{
 use once_cell::sync::OnceCell;
 #[cfg(target_os = "linux")]
 use std::collections::HashMap;
+#[cfg(target_os = "linux")]
+use std::fs;
 #[cfg(target_os = "linux")]
 use std::io;
 use std::process::Command;
@@ -802,44 +802,44 @@ fn enumerate_child_processes_lightweight(
     // On non-Linux, we have to iterate through all processes in sysinfo
     // This is less efficient but maintains cross-platform compatibility
     for (child_pid, child_process) in system.processes() {
-        if let Some(parent) = child_process.parent() {
-            if parent.as_u32() == parent_pid {
-                let child_info = DetailedProcessInfo {
-                    pid: child_pid.as_u32(),
-                    name: child_process.name().to_string_lossy().to_string(),
-                    command: child_process
-                        .cmd()
-                        .iter()
-                        .map(|s| s.to_string_lossy().to_string())
-                        .collect::<Vec<_>>()
-                        .join(" "),
-                    cpu_usage: child_process.cpu_usage(),
-                    mem_bytes: child_process.memory(),
-                    virtual_mem_bytes: child_process.virtual_memory(),
-                    shared_mem_bytes: None,
-                    thread_count: child_process
-                        .tasks()
-                        .map(|tasks| tasks.len() as u32)
-                        .unwrap_or(0),
-                    fd_count: None,
-                    status: format!("{:?}", child_process.status()),
-                    parent_pid: Some(parent_pid),
-                    // On non-Linux platforms, sysinfo UID/GID might not be accurate
-                    // Just use 0 as placeholder since we can't read /proc
-                    user_id: 0,
-                    group_id: 0,
-                    start_time: child_process.start_time(),
-                    cpu_time_user: 0, // Not available on non-Linux in our implementation
-                    cpu_time_system: 0,
-                    read_bytes: Some(child_process.disk_usage().read_bytes),
-                    write_bytes: Some(child_process.disk_usage().written_bytes),
-                    working_directory: child_process.cwd().map(|p| p.to_string_lossy().to_string()),
-                    executable_path: child_process.exe().map(|p| p.to_string_lossy().to_string()),
-                    child_processes: Vec::new(),
-                    threads: Vec::new(), // Not collected for non-Linux
-                };
-                children.push(child_info);
-            }
+        if let Some(parent) = child_process.parent()
+            && parent.as_u32() == parent_pid
+        {
+            let child_info = DetailedProcessInfo {
+                pid: child_pid.as_u32(),
+                name: child_process.name().to_string_lossy().to_string(),
+                command: child_process
+                    .cmd()
+                    .iter()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                cpu_usage: child_process.cpu_usage(),
+                mem_bytes: child_process.memory(),
+                virtual_mem_bytes: child_process.virtual_memory(),
+                shared_mem_bytes: None,
+                thread_count: child_process
+                    .tasks()
+                    .map(|tasks| tasks.len() as u32)
+                    .unwrap_or(0),
+                fd_count: None,
+                status: format!("{:?}", child_process.status()),
+                parent_pid: Some(parent_pid),
+                // On non-Linux platforms, sysinfo UID/GID might not be accurate
+                // Just use 0 as placeholder since we can't read /proc
+                user_id: 0,
+                group_id: 0,
+                start_time: child_process.start_time(),
+                cpu_time_user: 0, // Not available on non-Linux in our implementation
+                cpu_time_system: 0,
+                read_bytes: Some(child_process.disk_usage().read_bytes),
+                write_bytes: Some(child_process.disk_usage().written_bytes),
+                working_directory: child_process.cwd().map(|p| p.to_string_lossy().to_string()),
+                executable_path: child_process.exe().map(|p| p.to_string_lossy().to_string()),
+                child_processes: Vec::new(),
+                threads: Vec::new(), // Not collected for non-Linux
+            };
+            children.push(child_info);
         }
     }
 
