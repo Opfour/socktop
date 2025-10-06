@@ -1,5 +1,7 @@
 //! Metrics collection using sysinfo for socktop_agent.
 
+use std::fs;
+
 use crate::gpu::collect_all_gpus;
 use crate::state::AppState;
 use crate::types::{
@@ -9,8 +11,6 @@ use crate::types::{
 use once_cell::sync::OnceCell;
 #[cfg(target_os = "linux")]
 use std::collections::HashMap;
-#[cfg(target_os = "linux")]
-use std::fs;
 #[cfg(target_os = "linux")]
 use std::io;
 use std::process::Command;
@@ -979,8 +979,9 @@ pub async fn collect_process_metrics(
     let start_time = process.start_time();
 
     // Read UID and GID directly from /proc/{pid}/status for accuracy
+    #[cfg(target_os = "linux")]
     let (user_id, group_id) =
-        if let Ok(status_content) = fs::read_to_string(format!("/proc/{pid}/status")) {
+        if let Ok(status_content) = std::fs::read_to_string(format!("/proc/{pid}/status")) {
             let mut uid = 0u32;
             let mut gid = 0u32;
 
@@ -1002,15 +1003,19 @@ pub async fn collect_process_metrics(
 
             (uid, gid)
         } else {
-            // Fallback if /proc read fails (non-Linux or permission issue)
+            // Fallback if /proc read fails (permission issue)
             (0, 0)
         };
+    
+    #[cfg(not(target_os = "linux"))]
+    let (user_id, group_id) = (0, 0);
 
     // Read I/O stats directly from /proc/{pid}/io
     // Use rchar/wchar to capture ALL I/O including cached reads (like htop/btop do)
     // sysinfo's total_read_bytes/total_written_bytes only count actual disk I/O
+    #[cfg(target_os = "linux")]
     let (read_bytes, write_bytes) =
-        if let Ok(io_content) = fs::read_to_string(format!("/proc/{pid}/io")) {
+        if let Ok(io_content) = std::fs::read_to_string(format!("/proc/{pid}/io")) {
             let mut rchar = 0u64;
             let mut wchar = 0u64;
 
