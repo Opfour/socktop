@@ -333,32 +333,42 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
     disks_list.refresh(false); // don't drop missing disks
 
     // Collect disk temperatures from components
+    // NVMe temps show up as "Composite" under different chip names
     let disk_temps = {
         let mut components = state.components.lock().await;
         components.refresh(false);
-        let mut temps = std::collections::HashMap::new();
+        let mut composite_temps = Vec::new();
+        
         for c in components.iter() {
             let label = c.label().to_ascii_lowercase();
-            // Match common disk/SSD/NVMe sensor labels
-            if (label.contains("nvme") || label.contains("ssd") || label.contains("disk"))
-                && let Some(temp) = c.temperature()
-            {
-                // Extract device name from label (e.g., "nvme0" from "Composite nvme0")
-                for part in label.split_whitespace() {
-                    if part.starts_with("nvme") || part.starts_with("sd") {
-                        temps.insert(part.to_string(), temp);
-                    }
-                }
+            
+            // Collect all "Composite" temperatures (these are NVMe drives)
+            if label == "composite" && let Some(temp) = c.temperature() {
+                composite_temps.push(temp);
             }
+        }
+        
+        // Store composite temps indexed by their order (nvme0n1, nvme1n1, nvme2n1, etc.)
+        let mut temps = std::collections::HashMap::new();
+        for (idx, temp) in composite_temps.iter().enumerate() {
+            temps.insert(format!("nvme{}n1", idx), *temp);
         }
         temps
     };
 
-    // First collect all partitions from sysinfo
+    // First collect all partitions from sysinfo, deduplicating by device name
+    // (same partition can be mounted at multiple mount points)
+    let mut seen_partitions = std::collections::HashSet::new();
     let partitions: Vec<DiskInfo> = disks_list
         .iter()
-        .map(|d| {
+        .filter_map(|d| {
             let name = d.name().to_string_lossy().into_owned();
+            
+            // Skip if we've already seen this partition/device
+            if !seen_partitions.insert(name.clone()) {
+                return None;
+            }
+            
             // Determine if this is a partition
             let is_partition = name.contains("p1")
                 || name.contains("p2")
@@ -382,13 +392,13 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
                 }
             });
 
-            DiskInfo {
+            Some(DiskInfo {
                 name,
                 total: d.total_space(),
                 available: d.available_space(),
                 temperature,
                 is_partition,
-            }
+            })
         })
         .collect();
 
@@ -402,7 +412,12 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
             // nvme0n1p1 -> nvme0n1, sda1 -> sda, mmcblk0p1 -> mmcblk0
             let parent_name = if let Some(pos) = partition.name.rfind('p') {
                 // Check if character after 'p' is a digit
-                if partition.name.chars().nth(pos + 1).is_some_and(|c| c.is_ascii_digit()) {
+                if partition
+                    .name
+                    .chars()
+                    .nth(pos + 1)
+                    .is_some_and(|c| c.is_ascii_digit())
+                {
                     &partition.name[..pos]
                 } else {
                     // Handle sda1, sdb2, etc (just trim trailing digit)
@@ -414,9 +429,11 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
             };
 
             // Aggregate partition stats into parent
-            let entry = parent_disks
-                .entry(parent_name.to_string())
-                .or_insert((0, 0, partition.temperature));
+            let entry = parent_disks.entry(parent_name.to_string()).or_insert((
+                0,
+                0,
+                partition.temperature,
+            ));
             entry.0 += partition.total;
             entry.1 += partition.available;
             // Keep temperature if any partition has it
@@ -446,7 +463,12 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
         if partition.is_partition {
             // Find parent disk index
             let parent_name = if let Some(pos) = partition.name.rfind('p') {
-                if partition.name.chars().nth(pos + 1).is_some_and(|c| c.is_ascii_digit()) {
+                if partition
+                    .name
+                    .chars()
+                    .nth(pos + 1)
+                    .is_some_and(|c| c.is_ascii_digit())
+                {
                     &partition.name[..pos]
                 } else {
                     partition.name.trim_end_matches(char::is_numeric)
