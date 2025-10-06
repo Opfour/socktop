@@ -1036,7 +1036,7 @@ pub async fn collect_process_metrics(
                 Some(disk_usage.total_written_bytes),
             )
         };
-    
+
     #[cfg(not(target_os = "linux"))]
     let (read_bytes, write_bytes) = {
         let disk_usage = process.disk_usage();
@@ -1045,7 +1045,7 @@ pub async fn collect_process_metrics(
             Some(disk_usage.total_written_bytes),
         )
     };
-    
+
     let working_directory = process.cwd().map(|p| p.to_string_lossy().to_string());
     let executable_path = process.exe().map(|p| p.to_string_lossy().to_string());
 
