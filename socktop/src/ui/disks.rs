@@ -62,7 +62,7 @@ pub fn draw_disks(f: &mut ratatui::Frame<'_>, area: Rect, m: Option<&Metrics>) {
         };
 
         // Add indentation for partitions
-        let indent = if d.is_partition { "  └─" } else { "" };
+        let indent = if d.is_partition { "└─" } else { "" };
 
         // Add temperature if available
         let temp_str = d
@@ -71,7 +71,7 @@ pub fn draw_disks(f: &mut ratatui::Frame<'_>, area: Rect, m: Option<&Metrics>) {
             .unwrap_or_default();
 
         let title = format!(
-            "{}{} {}{}   {} / {}  ({}%)",
+            "{}{}{}{}  {} / {}  ({}%)",
             indent,
             disk_icon(&d.name),
             truncate_middle(&d.name, (slot.width.saturating_sub(6)) as usize / 2),
@@ -81,14 +81,23 @@ pub fn draw_disks(f: &mut ratatui::Frame<'_>, area: Rect, m: Option<&Metrics>) {
             pct
         );
 
+        // Indent the entire card (block) for partitions to align with └─ prefix (4 chars)
+        let card_indent = if d.is_partition { 4 } else { 0 };
+        let card_rect = Rect {
+            x: slot.x + card_indent,
+            y: slot.y,
+            width: slot.width.saturating_sub(card_indent),
+            height: slot.height,
+        };
+
         let card = Block::default().borders(Borders::ALL).title(title);
-        f.render_widget(card, *slot);
+        f.render_widget(card, card_rect);
 
         let inner_card = Rect {
-            x: slot.x + 1,
-            y: slot.y + 1,
-            width: slot.width.saturating_sub(2),
-            height: slot.height.saturating_sub(2),
+            x: card_rect.x + 1,
+            y: card_rect.y + 1,
+            width: card_rect.width.saturating_sub(2),
+            height: card_rect.height.saturating_sub(2),
         };
         if inner_card.height == 0 {
             continue;
