@@ -24,8 +24,14 @@ pub fn draw_disks(f: &mut ratatui::Frame<'_>, area: Rect, m: Option<&Metrics>) {
         return;
     }
 
+    // Filter duplicates by keeping first occurrence of each unique name
+    let mut seen_names = std::collections::HashSet::new();
+    let unique_disks: Vec<_> = mm.disks.iter()
+        .filter(|d| seen_names.insert(d.name.clone()))
+        .collect();
+
     let per_disk_h = 3u16;
-    let max_cards = (inner.height / per_disk_h).min(mm.disks.len() as u16) as usize;
+    let max_cards = (inner.height / per_disk_h).min(unique_disks.len() as u16) as usize;
 
     let constraints: Vec<Constraint> = (0..max_cards)
         .map(|_| Constraint::Length(per_disk_h))
@@ -36,7 +42,7 @@ pub fn draw_disks(f: &mut ratatui::Frame<'_>, area: Rect, m: Option<&Metrics>) {
         .split(inner);
 
     for (i, slot) in rows.iter().enumerate() {
-        let d = &mm.disks[i];
+        let d = unique_disks[i];
         let used = d.total.saturating_sub(d.available);
         let ratio = if d.total > 0 {
             used as f64 / d.total as f64
@@ -53,10 +59,20 @@ pub fn draw_disks(f: &mut ratatui::Frame<'_>, area: Rect, m: Option<&Metrics>) {
             ratatui::style::Color::Red
         };
 
+        // Add indentation for partitions
+        let indent = if d.is_partition { "  └─" } else { "" };
+        
+        // Add temperature if available
+        let temp_str = d.temperature
+            .map(|t| format!(" {}°C", t.round() as i32))
+            .unwrap_or_default();
+
         let title = format!(
-            "{} {}   {} / {}  ({}%)",
+            "{}{} {}{}   {} / {}  ({}%)",
+            indent,
             disk_icon(&d.name),
             truncate_middle(&d.name, (slot.width.saturating_sub(6)) as usize / 2),
+            temp_str,
             human(used),
             human(d.total),
             pct

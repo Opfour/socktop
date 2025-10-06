@@ -331,12 +331,56 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
     }
     let mut disks_list = state.disks.lock().await;
     disks_list.refresh(false); // don't drop missing disks
+    
+    // Collect disk temperatures from components
+    let disk_temps = {
+        let mut components = state.components.lock().await;
+        components.refresh(false);
+        let mut temps = std::collections::HashMap::new();
+        for c in components.iter() {
+            let label = c.label().to_ascii_lowercase();
+            // Match common disk/SSD/NVMe sensor labels
+            if label.contains("nvme") || label.contains("ssd") || label.contains("disk") {
+                if let Some(temp) = c.temperature() {
+                    // Extract device name from label (e.g., "nvme0" from "Composite nvme0")
+                    for part in label.split_whitespace() {
+                        if part.starts_with("nvme") || part.starts_with("sd") {
+                            temps.insert(part.to_string(), temp);
+                        }
+                    }
+                }
+            }
+        }
+        temps
+    };
+    
     let disks: Vec<DiskInfo> = disks_list
         .iter()
-        .map(|d| DiskInfo {
-            name: d.name().to_string_lossy().into_owned(),
-            total: d.total_space(),
-            available: d.available_space(),
+        .map(|d| {
+            let name = d.name().to_string_lossy().into_owned();
+            // Determine if this is a partition (contains 'p' followed by digit, or just digit after device name)
+            let is_partition = name.contains("p1") || name.contains("p2") || name.contains("p3")
+                || name.ends_with('1') || name.ends_with('2') || name.ends_with('3')
+                || name.ends_with('4') || name.ends_with('5') || name.ends_with('6')
+                || name.ends_with('7') || name.ends_with('8') || name.ends_with('9');
+            
+            // Try to find temperature for this disk
+            let temperature = disk_temps.iter()
+                .find_map(|(key, &temp)| {
+                    if name.starts_with(key) {
+                        Some(temp)
+                    } else {
+                        None
+                    }
+                });
+            
+            DiskInfo {
+                name,
+                total: d.total_space(),
+                available: d.available_space(),
+                temperature,
+                is_partition,
+            }
         })
         .collect();
     {

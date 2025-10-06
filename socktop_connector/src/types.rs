@@ -15,6 +15,8 @@ pub struct DiskInfo {
     pub name: String,
     pub total: u64,
     pub available: u64,
+    pub temperature: Option<f32>,
+    pub is_partition: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
