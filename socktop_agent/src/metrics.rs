@@ -336,7 +336,7 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
     // NVMe temps show up as "Composite" under different chip names
     let disk_temps = {
         let mut components = state.components.lock().await;
-        components.refresh(false);
+        components.refresh(true);  // true = refresh values, not just the list
         let mut composite_temps = Vec::new();
 
         for c in components.iter() {
@@ -398,7 +398,7 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
                     None
                 }
             });
-            
+
             if temperature.is_none() && !name.starts_with("loop") && !name.starts_with("ram") {
                 tracing::debug!("No temperature found for disk: {}", name);
             }
@@ -449,11 +449,9 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
             });
 
             // Aggregate partition stats into parent
-            let entry = parent_disks.entry(parent_name.to_string()).or_insert((
-                0,
-                0,
-                parent_temp,
-            ));
+            let entry = parent_disks
+                .entry(parent_name.to_string())
+                .or_insert((0, 0, parent_temp));
             entry.0 += partition.total;
             entry.1 += partition.available;
             // Keep temperature if any partition has it (or if we just found one)
