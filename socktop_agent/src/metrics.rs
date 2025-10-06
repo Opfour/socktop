@@ -331,7 +331,7 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
     }
     let mut disks_list = state.disks.lock().await;
     disks_list.refresh(false); // don't drop missing disks
-    
+
     // Collect disk temperatures from components
     let disk_temps = {
         let mut components = state.components.lock().await;
@@ -340,40 +340,48 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
         for c in components.iter() {
             let label = c.label().to_ascii_lowercase();
             // Match common disk/SSD/NVMe sensor labels
-            if label.contains("nvme") || label.contains("ssd") || label.contains("disk") {
-                if let Some(temp) = c.temperature() {
-                    // Extract device name from label (e.g., "nvme0" from "Composite nvme0")
-                    for part in label.split_whitespace() {
-                        if part.starts_with("nvme") || part.starts_with("sd") {
-                            temps.insert(part.to_string(), temp);
-                        }
+            if (label.contains("nvme") || label.contains("ssd") || label.contains("disk"))
+                && let Some(temp) = c.temperature()
+            {
+                // Extract device name from label (e.g., "nvme0" from "Composite nvme0")
+                for part in label.split_whitespace() {
+                    if part.starts_with("nvme") || part.starts_with("sd") {
+                        temps.insert(part.to_string(), temp);
                     }
                 }
             }
         }
         temps
     };
-    
-    let disks: Vec<DiskInfo> = disks_list
+
+    // First collect all partitions from sysinfo
+    let partitions: Vec<DiskInfo> = disks_list
         .iter()
         .map(|d| {
             let name = d.name().to_string_lossy().into_owned();
-            // Determine if this is a partition (contains 'p' followed by digit, or just digit after device name)
-            let is_partition = name.contains("p1") || name.contains("p2") || name.contains("p3")
-                || name.ends_with('1') || name.ends_with('2') || name.ends_with('3')
-                || name.ends_with('4') || name.ends_with('5') || name.ends_with('6')
-                || name.ends_with('7') || name.ends_with('8') || name.ends_with('9');
-            
+            // Determine if this is a partition
+            let is_partition = name.contains("p1")
+                || name.contains("p2")
+                || name.contains("p3")
+                || name.ends_with('1')
+                || name.ends_with('2')
+                || name.ends_with('3')
+                || name.ends_with('4')
+                || name.ends_with('5')
+                || name.ends_with('6')
+                || name.ends_with('7')
+                || name.ends_with('8')
+                || name.ends_with('9');
+
             // Try to find temperature for this disk
-            let temperature = disk_temps.iter()
-                .find_map(|(key, &temp)| {
-                    if name.starts_with(key) {
-                        Some(temp)
-                    } else {
-                        None
-                    }
-                });
-            
+            let temperature = disk_temps.iter().find_map(|(key, &temp)| {
+                if name.starts_with(key) {
+                    Some(temp)
+                } else {
+                    None
+                }
+            });
+
             DiskInfo {
                 name,
                 total: d.total_space(),
@@ -383,6 +391,90 @@ pub async fn collect_disks(state: &AppState) -> Vec<DiskInfo> {
             }
         })
         .collect();
+
+    // Now create parent disk entries by aggregating partition data
+    let mut parent_disks: std::collections::HashMap<String, (u64, u64, Option<f32>)> =
+        std::collections::HashMap::new();
+
+    for partition in &partitions {
+        if partition.is_partition {
+            // Extract parent disk name
+            // nvme0n1p1 -> nvme0n1, sda1 -> sda, mmcblk0p1 -> mmcblk0
+            let parent_name = if let Some(pos) = partition.name.rfind('p') {
+                // Check if character after 'p' is a digit
+                if partition.name.chars().nth(pos + 1).is_some_and(|c| c.is_ascii_digit()) {
+                    &partition.name[..pos]
+                } else {
+                    // Handle sda1, sdb2, etc (just trim trailing digit)
+                    partition.name.trim_end_matches(char::is_numeric)
+                }
+            } else {
+                // Handle sda1, sdb2, etc (just trim trailing digit)
+                partition.name.trim_end_matches(char::is_numeric)
+            };
+
+            // Aggregate partition stats into parent
+            let entry = parent_disks
+                .entry(parent_name.to_string())
+                .or_insert((0, 0, partition.temperature));
+            entry.0 += partition.total;
+            entry.1 += partition.available;
+            // Keep temperature if any partition has it
+            if entry.2.is_none() {
+                entry.2 = partition.temperature;
+            }
+        }
+    }
+
+    // Create parent disk entries
+    let mut disks: Vec<DiskInfo> = parent_disks
+        .into_iter()
+        .map(|(name, (total, available, temperature))| DiskInfo {
+            name,
+            total,
+            available,
+            temperature,
+            is_partition: false,
+        })
+        .collect();
+
+    // Sort parent disks by name
+    disks.sort_by(|a, b| a.name.cmp(&b.name));
+
+    // Add partitions after their parent disk
+    for partition in partitions {
+        if partition.is_partition {
+            // Find parent disk index
+            let parent_name = if let Some(pos) = partition.name.rfind('p') {
+                if partition.name.chars().nth(pos + 1).is_some_and(|c| c.is_ascii_digit()) {
+                    &partition.name[..pos]
+                } else {
+                    partition.name.trim_end_matches(char::is_numeric)
+                }
+            } else {
+                partition.name.trim_end_matches(char::is_numeric)
+            };
+
+            // Find where to insert this partition (after its parent)
+            if let Some(parent_idx) = disks.iter().position(|d| d.name == parent_name) {
+                // Insert after parent and any existing partitions of that parent
+                let mut insert_idx = parent_idx + 1;
+                while insert_idx < disks.len()
+                    && disks[insert_idx].is_partition
+                    && disks[insert_idx].name.starts_with(parent_name)
+                {
+                    insert_idx += 1;
+                }
+                disks.insert(insert_idx, partition);
+            } else {
+                // Parent not found (shouldn't happen), just add at end
+                disks.push(partition);
+            }
+        } else {
+            // Not a partition (e.g., zram0), add at end
+            disks.push(partition);
+        }
+    }
     {
         let mut cache = state.cache_disks.lock().await;
         cache.set(disks.clone());

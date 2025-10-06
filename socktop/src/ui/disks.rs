@@ -26,7 +26,9 @@ pub fn draw_disks(f: &mut ratatui::Frame<'_>, area: Rect, m: Option<&Metrics>) {
 
     // Filter duplicates by keeping first occurrence of each unique name
     let mut seen_names = std::collections::HashSet::new();
-    let unique_disks: Vec<_> = mm.disks.iter()
+    let unique_disks: Vec<_> = mm
+        .disks
+        .iter()
         .filter(|d| seen_names.insert(d.name.clone()))
         .collect();
 
@@ -61,9 +63,10 @@ pub fn draw_disks(f: &mut ratatui::Frame<'_>, area: Rect, m: Option<&Metrics>) {
 
         // Add indentation for partitions
         let indent = if d.is_partition { "  └─" } else { "" };
-        
+
         // Add temperature if available
-        let temp_str = d.temperature
+        let temp_str = d
+            .temperature
             .map(|t| format!(" {}°C", t.round() as i32))
             .unwrap_or_default();
 
