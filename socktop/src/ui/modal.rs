@@ -390,7 +390,6 @@ impl ModalManager {
     }
 
     fn render_about(&self, f: &mut Frame, area: Rect) {
-
         //get ASCII art from a constant stored in theme.rs
         use super::theme::ASCII_ART;
 

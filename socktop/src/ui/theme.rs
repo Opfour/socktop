@@ -61,7 +61,6 @@ pub const LARGE_ERROR_ICON: &[&str] = &[
     "    /______________\\    ",
 ];
 
-
 //about logo
 pub const ASCII_ART: &str = r#"
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣠⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
