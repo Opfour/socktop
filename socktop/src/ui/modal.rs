@@ -416,7 +416,7 @@ impl ModalManager {
 "#;
 
         let version = env!("CARGO_PKG_VERSION");
-        
+
         let about_text = format!(
             "{}\n\
             Version {}\n\
