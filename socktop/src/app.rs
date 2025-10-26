@@ -614,7 +614,8 @@ impl App {
                                     {
                                         self.clear_process_details();
                                     }
-                                    // Modal was dismissed, continue to normal processing
+                                    // Modal was dismissed, skip normal key processing
+                                    continue;
                                 }
                                 ModalAction::Confirm => {
                                     // Handle confirmation action here if needed in the future
@@ -654,6 +655,12 @@ impl App {
                         ) {
                             self.should_quit = true;
                         }
+                        
+                        // Show About modal on 'a' or 'A'
+                        if matches!(k.code, KeyCode::Char('a') | KeyCode::Char('A')) {
+                            self.modal_manager.push_modal(ModalType::About);
+                        }
+                        
                         // Per-core scroll via keys (Up/Down/PageUp/PageDown/Home/End)
                         let sz = terminal.size()?;
                         let area = Rect::new(0, 0, sz.width, sz.height);

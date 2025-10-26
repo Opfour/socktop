@@ -46,7 +46,7 @@ pub fn draw_header(
         parts.push(tok_txt.into());
     }
     parts.push(intervals);
-    parts.push("(q to quit)".into());
+    parts.push("(a: about, q: quit)".into());
     let title = parts.join(" | ");
     f.render_widget(Block::default().title(title).borders(Borders::BOTTOM), area);
 }

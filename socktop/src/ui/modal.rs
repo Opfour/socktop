@@ -55,6 +55,7 @@ impl ModalManager {
                 self.journal_scroll_max = 0;
                 ModalButton::Ok
             }
+            Some(ModalType::About) => ModalButton::Ok,
             Some(ModalType::Confirmation { .. }) => ModalButton::Confirm,
             Some(ModalType::Info { .. }) => ModalButton::Ok,
             None => ModalButton::Ok,
@@ -66,6 +67,7 @@ impl ModalManager {
             self.active_button = match next {
                 ModalType::ConnectionError { .. } => ModalButton::Retry,
                 ModalType::ProcessDetails { .. } => ModalButton::Ok,
+                ModalType::About => ModalButton::Ok,
                 ModalType::Confirmation { .. } => ModalButton::Confirm,
                 ModalType::Info { .. } => ModalButton::Ok,
             };
@@ -205,6 +207,10 @@ impl ModalManager {
                 self.pop_modal();
                 ModalAction::Dismiss
             }
+            (Some(ModalType::About), ModalButton::Ok) => {
+                self.pop_modal();
+                ModalAction::Dismiss
+            }
             (Some(ModalType::Confirmation { .. }), ModalButton::Confirm) => ModalAction::Confirm,
             (Some(ModalType::Confirmation { .. }), ModalButton::Cancel) => ModalAction::Cancel,
             (Some(ModalType::Info { .. }), ModalButton::Ok) => {
@@ -253,6 +259,10 @@ impl ModalManager {
                 // Process details modal uses almost full screen (95% width, 90% height)
                 self.centered_rect(95, 90, area)
             }
+            ModalType::About => {
+                // About modal uses medium size
+                self.centered_rect(60, 60, area)
+            }
             _ => {
                 // Other modals use smaller size
                 self.centered_rect(70, 50, area)
@@ -276,6 +286,7 @@ impl ModalManager {
             ModalType::ProcessDetails { pid } => {
                 self.render_process_details(f, modal_area, *pid, data)
             }
+            ModalType::About => self.render_about(f, modal_area),
             ModalType::Confirmation {
                 title,
                 message,
@@ -375,6 +386,99 @@ impl ModalManager {
                 .style(ok_style)
                 .alignment(Alignment::Center),
             chunks[1],
+        );
+    }
+
+    fn render_about(&self, f: &mut Frame, area: Rect) {
+        const ASCII_ART: &str = r#"
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣠⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⣶⣾⠿⠿⠛⠃⠀⠀⠀⠀⠀⣀⣀⣠⡄⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠘⠛⢉⣠⣴⣾⣿⠿⠆⢰⣾⡿⠿⠛⠛⠋⠁⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⣿⠟⠋⣁⣤⣤⣶⠀⣠⣤⣶⣾⣿⣿⡿⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣶⣿⣿⣿⣿⣿⡆⠘⠛⢉⣁⣤⣤⣤⡀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⡀⢾⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿⣧⠈⢿⣿⣿⣿⣿⣷⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣧⠈⢿⣿⣿⣿⣿⡄⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⠿⠋⣁⠀⢿⣿⣿⣿⣷⡀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣴⣿⣿⣿⣿⡟⢁⣴⣿⣿⡇⢸⣿⣿⡿⠟⠃⠀⠀
+⠀⠀⠀⠀⠀⠀⢀⣠⣴⣿⣿⣿⣿⣿⣿⡟⢀⣿⣿⣿⡟⢀⣾⠟⢁⣤⣶⣿⠀⠀
+⠀⠀⠀⠀⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⠸⡿⠟⢋⣠⣾⠃⣰⣿⣿⣿⡟⠀⠀
+⠀⠀⣴⣄⠙⣿⣿⣿⣿⣿⡿⠿⠛⠋⣉⣁⣤⣴⣶⣿⣿⣿⠀⣿⡿⠟⠋⠀⠀⠀
+⠀⠀⣿⣿⡆⠹⠟⠋⣁⣤⡄⢰⣿⠿⠟⠛⠋⠉⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠈⠉⠁⠀⠀⠀⠙⠛⠃⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+
+███████╗ ██████╗  ██████╗████████╗ ██████╗ ██████╗ 
+██╔════╝██╔═══██╗██╔════╝╚══██╔══╝██╔═══██╗██╔══██╗
+███████╗██║   ██║██║        ██║   ██║   ██║██████╔╝
+╚════██║██║   ██║██║        ██║   ██║   ██║██╔═══╝ 
+███████║╚██████╔╝╚██████╗   ██║   ╚██████╔╝██║     
+╚══════╝ ╚═════╝  ╚═════╝   ╚═╝    ╚═════╝ ╚═╝     
+"#;
+
+        let version = env!("CARGO_PKG_VERSION");
+        
+        let about_text = format!(
+            "{}\n\
+            Version {}\n\
+            \n\
+            A terminal first remote monitoring tool\n\
+            \n\
+            Website: https://socktop.io\n\
+            GitHub: https://github.com/jasonwitty/socktop\n\
+            \n\
+            License: MIT License\n\
+            \n\
+            Created by Jason Witty\n\
+            jasonpwitty+socktop@proton.me",
+            ASCII_ART, version
+        );
+
+        // Render the border block
+        let block = Block::default()
+            .title(" About socktop ")
+            .borders(Borders::ALL)
+            .style(Style::default().bg(Color::Black).fg(Color::Green));
+        f.render_widget(block, area);
+
+        // Calculate inner area manually to avoid any parent styling
+        let inner_area = Rect {
+            x: area.x + 1,
+            y: area.y + 1,
+            width: area.width.saturating_sub(2),
+            height: area.height.saturating_sub(3), // Leave room for button at bottom
+        };
+
+        // Render content area with explicit black background
+        f.render_widget(
+            Paragraph::new(about_text)
+                .style(Style::default().fg(Color::Cyan).bg(Color::Black))
+                .alignment(Alignment::Center)
+                .wrap(Wrap { trim: false }),
+            inner_area,
+        );
+
+        // Button area
+        let button_area = Rect {
+            x: area.x + 1,
+            y: area.y + area.height.saturating_sub(3),
+            width: area.width.saturating_sub(2),
+            height: 1,
+        };
+
+        let ok_style = if self.active_button == ModalButton::Ok {
+            Style::default()
+                .bg(Color::Blue)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Blue).bg(Color::Black)
+        };
+
+        f.render_widget(
+            Paragraph::new("[ Enter ] Close")
+                .style(ok_style)
+                .alignment(Alignment::Center),
+            button_area,
         );
     }
 
