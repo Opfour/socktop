@@ -6,6 +6,7 @@ use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
+    text::Line,
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
@@ -22,6 +23,7 @@ pub struct ModalManager {
     pub journal_scroll_offset: usize,
     pub thread_scroll_max: usize,
     pub journal_scroll_max: usize,
+    pub help_scroll_offset: usize,
 }
 
 impl ModalManager {
@@ -33,6 +35,7 @@ impl ModalManager {
             journal_scroll_offset: 0,
             thread_scroll_max: 0,
             journal_scroll_max: 0,
+            help_scroll_offset: 0,
         }
     }
     pub fn is_active(&self) -> bool {
@@ -56,7 +59,11 @@ impl ModalManager {
                 ModalButton::Ok
             }
             Some(ModalType::About) => ModalButton::Ok,
-            Some(ModalType::Help) => ModalButton::Ok,
+            Some(ModalType::Help) => {
+                // Reset scroll state for help modal
+                self.help_scroll_offset = 0;
+                ModalButton::Ok
+            }
             Some(ModalType::Confirmation { .. }) => ModalButton::Confirm,
             Some(ModalType::Info { .. }) => ModalButton::Ok,
             None => ModalButton::Ok,
@@ -192,6 +199,22 @@ impl ModalManager {
                     // For now, return a special action that the app can handle
                     // The app has access to the process details and can extract parent_pid
                     ModalAction::SwitchToParentProcess(*pid)
+                } else {
+                    ModalAction::None
+                }
+            }
+            KeyCode::Up => {
+                if matches!(self.stack.last(), Some(ModalType::Help)) {
+                    self.help_scroll_offset = self.help_scroll_offset.saturating_sub(1);
+                    ModalAction::Handled
+                } else {
+                    ModalAction::None
+                }
+            }
+            KeyCode::Down => {
+                if matches!(self.stack.last(), Some(ModalType::Help)) {
+                    self.help_scroll_offset = self.help_scroll_offset.saturating_add(1);
+                    ModalAction::Handled
                 } else {
                     ModalAction::None
                 }
@@ -472,72 +495,107 @@ impl ModalManager {
     }
 
     fn render_help(&self, f: &mut Frame, area: Rect) {
-        let help_text = "\
-GLOBAL
-  q/Q/Esc ........ Quit  │  a/A ....... About  │  h/H ....... Help
+        let help_lines = vec![
+            "GLOBAL",
+            "  q/Q/Esc ........ Quit  │  a/A ....... About  │  h/H ....... Help",
+            "",
+            "PROCESS LIST",
+            "  / .............. Start/edit fuzzy search",
+            "  c/C ............ Clear search filter",
+            "  ↑/↓ ............ Select/navigate processes",
+            "  Enter .......... Open Process Details",
+            "  x/X ............ Clear selection",
+            "  Click header ... Sort by column (CPU/Mem)",
+            "  Click row ...... Select process",
+            "",
+            "SEARCH MODE (after pressing /)",
+            "  Type ........... Enter search query (fuzzy match)",
+            "  ↑/↓ ............ Navigate results while typing",
+            "  Esc ............ Cancel search and clear filter",
+            "  Enter .......... Apply filter and select first result",
+            "",
+            "CPU PER-CORE",
+            "  ←/→ ............ Scroll cores  │  PgUp/PgDn ... Page up/down",
+            "  Home/End ....... Jump to first/last core",
+            "",
+            "PROCESS DETAILS MODAL",
+            "  x/X ............ Close modal (all parent modals)",
+            "  p/P ............ Navigate to parent process",
+            "  j/k ............ Scroll threads ↓/↑ (1 line)",
+            "  d/u ............ Scroll threads ↓/↑ (10 lines)",
+            "  [ / ] .......... Scroll journal ↑/↓",
+            "  Esc/Enter ...... Close modal",
+            "",
+            "MODAL NAVIGATION",
+            "  Tab/→ .......... Next button  │  Shift+Tab/← ... Previous button",
+            "  Enter .......... Confirm/OK    │  Esc ............ Cancel/Close",
+        ];
 
-PROCESS LIST
-  / .............. Start/edit fuzzy search
-  c/C ............ Clear search filter
-  ↑/↓ ............ Select/navigate processes
-  Enter .......... Open Process Details
-  x/X ............ Clear selection
-  Click header ... Sort by column (CPU/Mem)
-  Click row ...... Select process
-
-SEARCH MODE (after pressing /)
-  Type ........... Enter search query (fuzzy match)
-  ↑/↓ ............ Navigate results while typing
-  Esc ............ Cancel search and clear filter
-  Enter .......... Apply filter and select first result
-
-CPU PER-CORE
-  ←/→ ............ Scroll cores  │  PgUp/PgDn ... Page up/down
-  Home/End ....... Jump to first/last core
-
-PROCESS DETAILS MODAL
-  x/X ............ Close modal (all parent modals)
-  p/P ............ Navigate to parent process
-  j/k ............ Scroll threads ↓/↑ (1 line)
-  d/u ............ Scroll threads ↓/↑ (10 lines)
-  [ / ] .......... Scroll journal ↑/↓
-  Esc/Enter ...... Close modal
-
-MODAL NAVIGATION
-  Tab/→ .......... Next button  │  Shift+Tab/← ... Previous button
-  Enter .......... Confirm/OK    │  Esc ............ Cancel/Close";
         // Render the border block
         let block = Block::default()
-            .title(" Hotkey Help ")
+            .title(" Hotkey Help (use ↑/↓ to scroll) ")
             .borders(Borders::ALL)
             .style(Style::default().bg(Color::Black).fg(Color::DarkGray));
         f.render_widget(block, area);
 
-        // Calculate inner area manually to avoid any parent styling
-        let inner_area = Rect {
-            x: area.x + 1,
-            y: area.y + 1,
-            width: area.width.saturating_sub(2),
-            height: area.height.saturating_sub(2), // Leave room for button at bottom
-        };
+        // Split into content area and button area
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(Rect {
+                x: area.x + 1,
+                y: area.y + 1,
+                width: area.width.saturating_sub(2),
+                height: area.height.saturating_sub(2),
+            });
 
-        // Render content area with explicit black background
+        let content_area = chunks[0];
+        let button_area = chunks[1];
+
+        // Calculate visible window
+        let visible_height = content_area.height as usize;
+        let total_lines = help_lines.len();
+        let max_scroll = total_lines.saturating_sub(visible_height);
+        let scroll_offset = self.help_scroll_offset.min(max_scroll);
+
+        // Get visible lines
+        let visible_lines: Vec<Line> = help_lines
+            .iter()
+            .skip(scroll_offset)
+            .take(visible_height)
+            .map(|s| Line::from(*s))
+            .collect();
+
+        // Render scrollable content
         f.render_widget(
-            Paragraph::new(help_text)
+            Paragraph::new(visible_lines)
                 .style(Style::default().fg(Color::Cyan).bg(Color::Black))
-                .alignment(Alignment::Left)
-                .wrap(Wrap { trim: false }),
-            inner_area,
+                .alignment(Alignment::Left),
+            content_area,
         );
 
-        // Button area
-        let button_area = Rect {
-            x: area.x + 1,
-            y: area.y + area.height.saturating_sub(2),
-            width: area.width.saturating_sub(2),
-            height: 1,
-        };
+        // Render scrollbar if needed
+        if total_lines > visible_height {
+            use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState};
 
+            let scrollbar_area = Rect {
+                x: area.x + area.width.saturating_sub(2),
+                y: area.y + 1,
+                width: 1,
+                height: area.height.saturating_sub(2),
+            };
+
+            let mut scrollbar_state = ScrollbarState::new(max_scroll).position(scroll_offset);
+
+            let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(Some("↑"))
+                .end_symbol(Some("↓"))
+                .style(Style::default().fg(Color::DarkGray));
+
+            f.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+        }
+
+        // Button area
         let ok_style = if self.active_button == ModalButton::Ok {
             Style::default()
                 .bg(Color::Blue)
