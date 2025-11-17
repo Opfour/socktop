@@ -63,12 +63,23 @@ pub struct AppState {
     pub cache_metrics: Arc<Mutex<CacheEntry<crate::types::Metrics>>>,
     pub cache_disks: Arc<Mutex<CacheEntry<Vec<crate::types::DiskInfo>>>>,
     pub cache_processes: Arc<Mutex<CacheEntry<crate::types::ProcessesPayload>>>,
+
+    // Process detail caches (per-PID)
+    pub cache_process_metrics:
+        Arc<Mutex<HashMap<u32, CacheEntry<crate::types::ProcessMetricsResponse>>>>,
+    pub cache_journal_entries: Arc<Mutex<HashMap<u32, CacheEntry<crate::types::JournalResponse>>>>,
 }
 
 #[derive(Clone, Debug)]
 pub struct CacheEntry<T> {
     pub at: Option<Instant>,
     pub value: Option<T>,
+}
+
+impl<T> Default for CacheEntry<T> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<T> CacheEntry<T> {
@@ -87,6 +98,12 @@ impl<T> CacheEntry<T> {
     }
     pub fn get(&self) -> Option<&T> {
         self.value.as_ref()
+    }
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -116,6 +133,8 @@ impl AppState {
             cache_metrics: Arc::new(Mutex::new(CacheEntry::new())),
             cache_disks: Arc::new(Mutex::new(CacheEntry::new())),
             cache_processes: Arc::new(Mutex::new(CacheEntry::new())),
+            cache_process_metrics: Arc::new(Mutex::new(HashMap::new())),
+            cache_journal_entries: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }

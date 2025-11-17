@@ -3,7 +3,10 @@
 use crate::error::{ConnectorError, Result};
 use crate::pb::Processes;
 use crate::utils::{gunzip_to_string, gunzip_to_vec, is_gzip, log_debug};
-use crate::{AgentRequest, AgentResponse, DiskInfo, Metrics, ProcessInfo, ProcessesPayload};
+use crate::{
+    AgentRequest, AgentResponse, DiskInfo, JournalResponse, Metrics, ProcessInfo,
+    ProcessMetricsResponse, ProcessesPayload,
+};
 
 use prost::Message as ProstMessage;
 use std::cell::RefCell;
@@ -205,6 +208,26 @@ pub async fn send_request_and_wait(
                 })?;
                 Ok(AgentResponse::Processes(processes))
             }
+        }
+        AgentRequest::ProcessMetrics { pid: _ } => {
+            // Parse JSON response for process metrics
+            let process_metrics: ProcessMetricsResponse =
+                serde_json::from_str(&response).map_err(|e| {
+                    ConnectorError::serialization_error(format!(
+                        "Failed to parse process metrics: {e}"
+                    ))
+                })?;
+            Ok(AgentResponse::ProcessMetrics(process_metrics))
+        }
+        AgentRequest::JournalEntries { pid: _ } => {
+            // Parse JSON response for journal entries
+            let journal_entries: JournalResponse =
+                serde_json::from_str(&response).map_err(|e| {
+                    ConnectorError::serialization_error(format!(
+                        "Failed to parse journal entries: {e}"
+                    ))
+                })?;
+            Ok(AgentResponse::JournalEntries(journal_entries))
         }
     }
 }

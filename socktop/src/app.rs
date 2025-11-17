@@ -17,7 +17,7 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Rect},
 };
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 
 use crate::history::{PerCoreHistory, push_capped};
 use crate::retry::{RetryTiming, compute_retry_timing};
@@ -28,7 +28,10 @@ use crate::ui::cpu::{
     per_core_handle_scrollbar_mouse,
 };
 use crate::ui::modal::{ModalAction, ModalManager, ModalType};
-use crate::ui::processes::{ProcSortBy, processes_handle_key, processes_handle_mouse};
+use crate::ui::processes::{
+    ProcSortBy, ProcessKeyParams, processes_handle_key_with_selection,
+    processes_handle_mouse_with_selection,
+};
 use crate::ui::{
     disks::draw_disks, gpu::draw_gpu, header::draw_header, mem::draw_mem, net::draw_net_spark,
     swap::draw_swap,
@@ -76,11 +79,31 @@ pub struct App {
     pub procs_sort_by: ProcSortBy,
     last_procs_area: Option<ratatui::layout::Rect>,
 
+    // Process selection state
+    pub selected_process_pid: Option<u32>,
+    pub selected_process_index: Option<usize>, // Index in the visible/sorted list
+    prev_selected_process_pid: Option<u32>,    // Track previous selection to detect changes
+
     last_procs_poll: Instant,
     last_disks_poll: Instant,
     procs_interval: Duration,
     disks_interval: Duration,
     metrics_interval: Duration,
+
+    // Process details polling
+    pub process_details: Option<socktop_connector::ProcessMetricsResponse>,
+    pub journal_entries: Option<socktop_connector::JournalResponse>,
+    pub process_cpu_history: VecDeque<f32>, // CPU history for sparkline (last 60 samples)
+    pub process_mem_history: VecDeque<u64>, // Memory usage history in bytes (last 60 samples)
+    pub process_io_read_history: VecDeque<u64>, // Disk read DELTA history in bytes (last 60 samples)
+    pub process_io_write_history: VecDeque<u64>, // Disk write DELTA history in bytes (last 60 samples)
+    last_io_read_bytes: Option<u64>,             // Previous read bytes for delta calculation
+    last_io_write_bytes: Option<u64>,            // Previous write bytes for delta calculation
+    pub process_details_unsupported: bool,       // Track if agent doesn't support process details
+    last_process_details_poll: Instant,
+    last_journal_poll: Instant,
+    process_details_interval: Duration,
+    journal_interval: Duration,
 
     // For reconnects
     ws_url: String,
@@ -120,6 +143,9 @@ impl App {
             procs_drag: None,
             procs_sort_by: ProcSortBy::CpuDesc,
             last_procs_area: None,
+            selected_process_pid: None,
+            selected_process_index: None,
+            prev_selected_process_pid: None,
             last_procs_poll: Instant::now()
                 .checked_sub(Duration::from_secs(2))
                 .unwrap_or_else(Instant::now), // trigger immediately on first loop
@@ -129,6 +155,23 @@ impl App {
             procs_interval: Duration::from_secs(2),
             disks_interval: Duration::from_secs(5),
             metrics_interval: Duration::from_millis(500),
+            process_details: None,
+            journal_entries: None,
+            process_cpu_history: VecDeque::with_capacity(600),
+            process_mem_history: VecDeque::with_capacity(600),
+            process_io_read_history: VecDeque::with_capacity(600),
+            process_io_write_history: VecDeque::with_capacity(600),
+            last_io_read_bytes: None,
+            last_io_write_bytes: None,
+            process_details_unsupported: false,
+            last_process_details_poll: Instant::now()
+                .checked_sub(Duration::from_secs(10))
+                .unwrap_or_else(Instant::now),
+            last_journal_poll: Instant::now()
+                .checked_sub(Duration::from_secs(10))
+                .unwrap_or_else(Instant::now),
+            process_details_interval: Duration::from_millis(500),
+            journal_interval: Duration::from_secs(5),
             ws_url: String::new(),
             tls_ca: None,
             verify_hostname: false,
@@ -565,14 +608,43 @@ impl App {
                                     continue; // Skip normal key processing
                                 }
                                 ModalAction::Cancel | ModalAction::Dismiss => {
-                                    // Modal was dismissed, continue to normal processing
+                                    // If ProcessDetails modal was dismissed, clear the data to save resources
+                                    if let Some(crate::ui::modal::ModalType::ProcessDetails {
+                                        ..
+                                    }) = self.modal_manager.current_modal()
+                                    {
+                                        self.clear_process_details();
+                                    }
+                                    // Modal was dismissed, skip normal key processing
+                                    continue;
                                 }
                                 ModalAction::Confirm => {
                                     // Handle confirmation action here if needed in the future
                                 }
+                                ModalAction::SwitchToParentProcess(_current_pid) => {
+                                    // Get parent PID from current process details
+                                    if let Some(details) = &self.process_details
+                                        && let Some(parent_pid) = details.process.parent_pid
+                                    {
+                                        // Clear current process details
+                                        self.clear_process_details();
+                                        // Update selected process to parent
+                                        self.selected_process_pid = Some(parent_pid);
+                                        // Open modal for parent process
+                                        self.modal_manager.push_modal(
+                                            crate::ui::modal::ModalType::ProcessDetails {
+                                                pid: parent_pid,
+                                            },
+                                        );
+                                    }
+                                    continue;
+                                }
+                                ModalAction::Handled => {
+                                    // Modal consumed the key, don't pass to main window
+                                    continue;
+                                }
                                 ModalAction::None => {
-                                    // Modal is still active but didn't consume the key
-                                    continue; // Skip normal key processing
+                                    // Modal didn't handle the key, pass through to normal handling
                                 }
                             }
                         }
@@ -584,6 +656,17 @@ impl App {
                         ) {
                             self.should_quit = true;
                         }
+
+                        // Show About modal on 'a' or 'A'
+                        if matches!(k.code, KeyCode::Char('a') | KeyCode::Char('A')) {
+                            self.modal_manager.push_modal(ModalType::About);
+                        }
+
+                        // Show Help modal on 'h' or 'H'
+                        if matches!(k.code, KeyCode::Char('h') | KeyCode::Char('H')) {
+                            self.modal_manager.push_modal(ModalType::Help);
+                        }
+
                         // Per-core scroll via keys (Up/Down/PageUp/PageDown/Home/End)
                         let sz = terminal.size()?;
                         let area = Rect::new(0, 0, sz.width, sz.height);
@@ -603,7 +686,84 @@ impl App {
                             .split(rows[1]);
                         let content = per_core_content_area(top[1]);
 
-                        per_core_handle_key(&mut self.per_core_scroll, k, content.height as usize);
+                        // First try process selection (only handles arrows if a process is selected)
+                        let process_handled = if self.last_procs_area.is_some() {
+                            processes_handle_key_with_selection(ProcessKeyParams {
+                                selected_process_pid: &mut self.selected_process_pid,
+                                selected_process_index: &mut self.selected_process_index,
+                                key: k,
+                                metrics: self.last_metrics.as_ref(),
+                                sort_by: self.procs_sort_by,
+                            })
+                        } else {
+                            false
+                        };
+
+                        // If process selection didn't handle it, use CPU scrolling
+                        if !process_handled {
+                            per_core_handle_key(
+                                &mut self.per_core_scroll,
+                                k,
+                                content.height as usize,
+                            );
+                        }
+
+                        // Auto-scroll to keep selected process visible
+                        if let (Some(selected_idx), Some(p_area)) =
+                            (self.selected_process_index, self.last_procs_area)
+                        {
+                            // Calculate viewport size (excluding borders and header)
+                            let viewport_rows = p_area.height.saturating_sub(3) as usize; // borders (2) + header (1)
+
+                            // Build sorted index list to find display position
+                            if let Some(m) = self.last_metrics.as_ref() {
+                                let mut idxs: Vec<usize> = (0..m.top_processes.len()).collect();
+                                match self.procs_sort_by {
+                                    ProcSortBy::CpuDesc => idxs.sort_by(|&a, &b| {
+                                        let aa = m.top_processes[a].cpu_usage;
+                                        let bb = m.top_processes[b].cpu_usage;
+                                        bb.partial_cmp(&aa).unwrap_or(std::cmp::Ordering::Equal)
+                                    }),
+                                    ProcSortBy::MemDesc => idxs.sort_by(|&a, &b| {
+                                        let aa = m.top_processes[a].mem_bytes;
+                                        let bb = m.top_processes[b].mem_bytes;
+                                        bb.cmp(&aa)
+                                    }),
+                                }
+
+                                // Find the display position of the selected process
+                                if let Some(display_pos) =
+                                    idxs.iter().position(|&idx| idx == selected_idx)
+                                {
+                                    // Adjust scroll offset to keep selection visible
+                                    if display_pos < self.procs_scroll_offset {
+                                        // Selection is above viewport, scroll up
+                                        self.procs_scroll_offset = display_pos;
+                                    } else if display_pos
+                                        >= self.procs_scroll_offset + viewport_rows
+                                    {
+                                        // Selection is below viewport, scroll down
+                                        self.procs_scroll_offset =
+                                            display_pos.saturating_sub(viewport_rows - 1);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Check if process selection changed and clear details if so
+                        if self.selected_process_pid != self.prev_selected_process_pid {
+                            self.clear_process_details();
+                            self.prev_selected_process_pid = self.selected_process_pid;
+                        }
+
+                        // Check if Enter was pressed with a process selected
+                        if process_handled
+                            && k.code == KeyCode::Enter
+                            && let Some(selected_pid) = self.selected_process_pid
+                        {
+                            self.modal_manager
+                                .push_modal(ModalType::ProcessDetails { pid: selected_pid });
+                        }
 
                         let total_rows = self
                             .last_metrics
@@ -615,14 +775,13 @@ impl App {
                             total_rows,
                             content.height as usize,
                         );
-
-                        if let Some(p_area) = self.last_procs_area {
-                            // page size = visible rows (inner height minus header = 1)
-                            let page = p_area.height.saturating_sub(3).max(1) as usize; // borders (2) + header (1)
-                            processes_handle_key(&mut self.procs_scroll_offset, k, page);
-                        }
                     }
                     Event::Mouse(m) => {
+                        // If modal is active, don't handle mouse events on the main window
+                        if self.modal_manager.is_active() {
+                            continue;
+                        }
+
                         // Layout to get areas
                         let sz = terminal.size()?;
                         let area = Rect::new(0, 0, sz.width, sz.height);
@@ -671,18 +830,32 @@ impl App {
                             content.height as usize,
                         );
 
-                        // Processes table: sort by column on header click
+                        // Processes table: sort by column on header click and handle row selection
                         if let (Some(mm), Some(p_area)) =
                             (self.last_metrics.as_ref(), self.last_procs_area)
-                            && let Some(new_sort) = processes_handle_mouse(
-                                &mut self.procs_scroll_offset,
-                                &mut self.procs_drag,
-                                m,
-                                p_area,
-                                mm.top_processes.len(),
-                            )
                         {
-                            self.procs_sort_by = new_sort;
+                            use crate::ui::processes::ProcessMouseParams;
+                            if let Some(new_sort) =
+                                processes_handle_mouse_with_selection(ProcessMouseParams {
+                                    scroll_offset: &mut self.procs_scroll_offset,
+                                    selected_process_pid: &mut self.selected_process_pid,
+                                    selected_process_index: &mut self.selected_process_index,
+                                    drag: &mut self.procs_drag,
+                                    mouse: m,
+                                    area: p_area,
+                                    total_rows: mm.top_processes.len(),
+                                    metrics: self.last_metrics.as_ref(),
+                                    sort_by: self.procs_sort_by,
+                                })
+                            {
+                                self.procs_sort_by = new_sort;
+                            }
+                        }
+
+                        // Check if process selection changed via mouse and clear details if so
+                        if self.selected_process_pid != self.prev_selected_process_pid {
+                            self.clear_process_details();
+                            self.prev_selected_process_pid = self.selected_process_pid;
                         }
                     }
                     Event::Resize(_, _) => {}
@@ -732,6 +905,99 @@ impl App {
                         }
                         self.last_disks_poll = Instant::now();
                     }
+
+                    // Poll process details when modal is active and process is selected
+                    if let Some(pid) = self.selected_process_pid {
+                        // Check if ProcessDetails modal is currently active
+                        if let Some(crate::ui::modal::ModalType::ProcessDetails { .. }) =
+                            self.modal_manager.current_modal()
+                        {
+                            // Poll process details every 500ms when modal is active
+                            if self.last_process_details_poll.elapsed()
+                                >= self.process_details_interval
+                            {
+                                // Use timeout to prevent blocking the event loop
+                                match timeout(
+                                    Duration::from_millis(2000),
+                                    ws.request(AgentRequest::ProcessMetrics { pid }),
+                                )
+                                .await
+                                {
+                                    Ok(Ok(AgentResponse::ProcessMetrics(details))) => {
+                                        // Update history for sparklines
+                                        let cpu_usage = details.process.cpu_usage;
+                                        push_capped(&mut self.process_cpu_history, cpu_usage, 600);
+
+                                        let mem_bytes = details.process.mem_bytes;
+                                        push_capped(&mut self.process_mem_history, mem_bytes, 600);
+
+                                        // I/O bytes from agent are cumulative, calculate deltas
+                                        if let Some(read) = details.process.read_bytes {
+                                            let delta = if let Some(last) = self.last_io_read_bytes
+                                            {
+                                                read.saturating_sub(last)
+                                            } else {
+                                                0 // First sample, no delta available
+                                            };
+                                            push_capped(
+                                                &mut self.process_io_read_history,
+                                                delta,
+                                                600,
+                                            );
+                                            self.last_io_read_bytes = Some(read);
+                                        }
+                                        if let Some(write) = details.process.write_bytes {
+                                            let delta = if let Some(last) = self.last_io_write_bytes
+                                            {
+                                                write.saturating_sub(last)
+                                            } else {
+                                                0 // First sample, no delta available
+                                            };
+                                            push_capped(
+                                                &mut self.process_io_write_history,
+                                                delta,
+                                                600,
+                                            );
+                                            self.last_io_write_bytes = Some(write);
+                                        }
+
+                                        self.process_details = Some(details);
+                                        self.process_details_unsupported = false;
+                                    }
+                                    Ok(Err(_)) | Err(_) => {
+                                        // Agent doesn't support this feature or timeout occurred
+                                        // Mark as unsupported so we can show appropriate message
+                                        self.process_details_unsupported = true;
+                                    }
+                                    Ok(Ok(_)) => {
+                                        // Wrong response type
+                                        self.process_details_unsupported = true;
+                                    }
+                                }
+                                self.last_process_details_poll = Instant::now();
+                            }
+
+                            // Poll journal entries every 5s when modal is active
+                            if self.last_journal_poll.elapsed() >= self.journal_interval {
+                                // Use timeout to prevent blocking the event loop
+                                match timeout(
+                                    Duration::from_millis(2000),
+                                    ws.request(AgentRequest::JournalEntries { pid }),
+                                )
+                                .await
+                                {
+                                    Ok(Ok(AgentResponse::JournalEntries(journal))) => {
+                                        self.journal_entries = Some(journal);
+                                    }
+                                    Ok(Err(_)) | Err(_) | Ok(Ok(_)) => {
+                                        // Agent doesn't support this feature, error occurred, or wrong response type
+                                        // Keep journal_entries as None
+                                    }
+                                }
+                                self.last_journal_poll = Instant::now();
+                            }
+                        }
+                    }
                 }
                 Err(e) => {
                     // Connection error - show modal if not already shown
@@ -758,6 +1024,19 @@ impl App {
         }
 
         Ok(())
+    }
+
+    /// Clear process details when modal is closed or selection changes
+    pub fn clear_process_details(&mut self) {
+        self.process_details = None;
+        self.journal_entries = None;
+        self.process_cpu_history.clear();
+        self.process_mem_history.clear();
+        self.process_io_read_history.clear();
+        self.process_io_write_history.clear();
+        self.last_io_read_bytes = None;
+        self.last_io_write_bytes = None;
+        self.process_details_unsupported = false;
     }
 
     fn update_with_metrics(&mut self, mut m: Metrics) {
@@ -919,11 +1198,27 @@ impl App {
             self.last_metrics.as_ref(),
             self.procs_scroll_offset,
             self.procs_sort_by,
+            self.selected_process_pid,
+            self.selected_process_index,
         );
 
         // Render modals on top of everything else
         if self.modal_manager.is_active() {
-            self.modal_manager.render(f);
+            use crate::ui::modal::{ProcessHistoryData, ProcessModalData};
+            self.modal_manager.render(
+                f,
+                ProcessModalData {
+                    details: self.process_details.as_ref(),
+                    journal: self.journal_entries.as_ref(),
+                    history: ProcessHistoryData {
+                        cpu: &self.process_cpu_history,
+                        mem: &self.process_mem_history,
+                        io_read: &self.process_io_read_history,
+                        io_write: &self.process_io_write_history,
+                    },
+                    unsupported: self.process_details_unsupported,
+                },
+            );
         }
     }
 }
@@ -946,6 +1241,9 @@ impl Default for App {
             procs_drag: None,
             procs_sort_by: ProcSortBy::CpuDesc,
             last_procs_area: None,
+            selected_process_pid: None,
+            selected_process_index: None,
+            prev_selected_process_pid: None,
             last_procs_poll: Instant::now()
                 .checked_sub(Duration::from_secs(2))
                 .unwrap_or_else(Instant::now), // trigger immediately on first loop
@@ -955,6 +1253,23 @@ impl Default for App {
             procs_interval: Duration::from_secs(2),
             disks_interval: Duration::from_secs(5),
             metrics_interval: Duration::from_millis(500),
+            process_details: None,
+            journal_entries: None,
+            process_cpu_history: VecDeque::with_capacity(600),
+            process_mem_history: VecDeque::with_capacity(600),
+            process_io_read_history: VecDeque::with_capacity(600),
+            process_io_write_history: VecDeque::with_capacity(600),
+            last_io_read_bytes: None,
+            last_io_write_bytes: None,
+            process_details_unsupported: false,
+            last_process_details_poll: Instant::now()
+                .checked_sub(Duration::from_secs(10))
+                .unwrap_or_else(Instant::now),
+            last_journal_poll: Instant::now()
+                .checked_sub(Duration::from_secs(10))
+                .unwrap_or_else(Instant::now),
+            process_details_interval: Duration::from_millis(500),
+            journal_interval: Duration::from_secs(5),
             ws_url: String::new(),
             tls_ca: None,
             verify_hostname: false,

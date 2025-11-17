@@ -1,6 +1,7 @@
 //! WebSocket request handlers for native (non-WASM) environments.
 
 use crate::networking::WsStream;
+use crate::types::{JournalResponse, ProcessMetricsResponse};
 use crate::utils::{gunzip_to_string, gunzip_to_vec, is_gzip};
 use crate::{DiskInfo, Metrics, ProcessInfo, ProcessesPayload, pb};
 
@@ -79,6 +80,39 @@ pub async fn request_processes(ws: &mut WsStream) -> Option<ProcessesPayload> {
             }
         }
         Some(Ok(Message::Text(json))) => serde_json::from_str::<ProcessesPayload>(&json).ok(),
+        _ => None,
+    }
+}
+
+/// Send a "get_process_metrics:{pid}" request and await a JSON ProcessMetricsResponse
+pub async fn request_process_metrics(
+    ws: &mut WsStream,
+    pid: u32,
+) -> Option<ProcessMetricsResponse> {
+    let request = format!("get_process_metrics:{pid}");
+    if ws.send(Message::Text(request)).await.is_err() {
+        return None;
+    }
+    match ws.next().await {
+        Some(Ok(Message::Binary(b))) => gunzip_to_string(&b)
+            .ok()
+            .and_then(|s| serde_json::from_str::<ProcessMetricsResponse>(&s).ok()),
+        Some(Ok(Message::Text(json))) => serde_json::from_str::<ProcessMetricsResponse>(&json).ok(),
+        _ => None,
+    }
+}
+
+/// Send a "get_journal_entries:{pid}" request and await a JSON JournalResponse
+pub async fn request_journal_entries(ws: &mut WsStream, pid: u32) -> Option<JournalResponse> {
+    let request = format!("get_journal_entries:{pid}");
+    if ws.send(Message::Text(request)).await.is_err() {
+        return None;
+    }
+    match ws.next().await {
+        Some(Ok(Message::Binary(b))) => gunzip_to_string(&b)
+            .ok()
+            .and_then(|s| serde_json::from_str::<JournalResponse>(&s).ok()),
+        Some(Ok(Message::Text(json))) => serde_json::from_str::<JournalResponse>(&json).ok(),
         _ => None,
     }
 }

@@ -30,6 +30,15 @@ pub const BTN_EXIT_BG_ACTIVE: Color = Color::Rgb(255, 255, 255); // modern red
 pub const BTN_EXIT_FG_ACTIVE: Color = Color::Rgb(26, 26, 46);
 pub const BTN_EXIT_FG_INACTIVE: Color = Color::Rgb(255, 255, 255);
 
+// Process selection colors
+pub const PROCESS_SELECTION_BG: Color = Color::Rgb(147, 112, 219); // Medium slate blue (purple)
+pub const PROCESS_SELECTION_FG: Color = Color::Rgb(255, 255, 255); // White text for contrast
+pub const PROCESS_TOOLTIP_BG: Color = Color::Rgb(147, 112, 219); // Same purple as selection
+pub const PROCESS_TOOLTIP_FG: Color = Color::Rgb(255, 255, 255); // White text for contrast
+
+// Process details modal colors (matches main UI aesthetic - no custom colors, terminal defaults)
+pub const PROCESS_DETAILS_ACCENT: Color = Color::Rgb(147, 112, 219); // Purple accent for highlights
+
 // Emoji / icon strings (centralized so they can be themed/swapped later)
 pub const ICON_WARNING_TITLE: &str = " 🔌 CONNECTION ERROR ";
 pub const ICON_CLUSTER: &str = "⚠️";
@@ -40,7 +49,7 @@ pub const ICON_COUNTDOWN_LABEL: &str = "⏰ Next auto retry: ";
 pub const BTN_RETRY_TEXT: &str = " 🔄 Retry ";
 pub const BTN_EXIT_TEXT: &str = " ❌ Exit ";
 
-// Large multi-line warning icon
+// warning icon
 pub const LARGE_ERROR_ICON: &[&str] = &[
     "           /\\           ",
     "          /  \\          ",
@@ -51,3 +60,29 @@ pub const LARGE_ERROR_ICON: &[&str] = &[
     "     /     !!     \\     ",
     "    /______________\\    ",
 ];
+
+//about logo
+pub const ASCII_ART: &str = r#"
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣠⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⣶⣾⠿⠿⠛⠃⠀⠀⠀⠀⠀⣀⣀⣠⡄⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠘⠛⢉⣠⣴⣾⣿⠿⠆⢰⣾⡿⠿⠛⠛⠋⠁⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⣿⠟⠋⣁⣤⣤⣶⠀⣠⣤⣶⣾⣿⣿⡿⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣶⣿⣿⣿⣿⣿⡆⠘⠛⢉⣁⣤⣤⣤⡀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⡀⢾⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿⣧⠈⢿⣿⣿⣿⣿⣷⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣧⠈⢿⣿⣿⣿⣿⡄⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⠿⠋⣁⠀⢿⣿⣿⣿⣷⡀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣴⣿⣿⣿⣿⡟⢁⣴⣿⣿⡇⢸⣿⣿⡿⠟⠃⠀⠀
+⠀⠀⠀⠀⠀⠀⢀⣠⣴⣿⣿⣿⣿⣿⣿⡟⢀⣿⣿⣿⡟⢀⣾⠟⢁⣤⣶⣿⠀⠀
+⠀⠀⠀⠀⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⠸⡿⠟⢋⣠⣾⠃⣰⣿⣿⣿⡟⠀⠀
+⠀⠀⣴⣄⠙⣿⣿⣿⣿⣿⡿⠿⠛⠋⣉⣁⣤⣴⣶⣿⣿⣿⠀⣿⡿⠟⠋⠀⠀⠀
+⠀⠀⣿⣿⡆⠹⠟⠋⣁⣤⡄⢰⣿⠿⠟⠛⠋⠉⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠈⠉⠁⠀⠀⠀⠙⠛⠃⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+
+███████╗ ██████╗  ██████╗████████╗ ██████╗ ██████╗ 
+██╔════╝██╔═══██╗██╔════╝╚══██╔══╝██╔═══██╗██╔══██╗
+███████╗██║   ██║██║        ██║   ██║   ██║██████╔╝
+╚════██║██║   ██║██║        ██║   ██║   ██║██╔═══╝ 
+███████║╚██████╔╝╚██████╗   ██║   ╚██████╔╝██║     
+╚══════╝ ╚═════╝  ╚═════╝   ╚═╝    ╚═════╝ ╚═╝     
+"#;

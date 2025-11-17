@@ -66,7 +66,7 @@ use tokio_tungstenite::{Connector, connect_async_tls_with_config};
 use crate::error::{ConnectorError, Result};
 use crate::types::{AgentRequest, AgentResponse};
 #[cfg(any(feature = "networking", feature = "wasm"))]
-use crate::types::{DiskInfo, Metrics, ProcessInfo, ProcessesPayload};
+use crate::types::{DiskInfo, Metrics, ProcessInfo, ProcessesPayload, ProcessMetricsResponse, JournalResponse};
 #[cfg(feature = "tls")]
 fn ensure_crypto_provider() {
     use std::sync::Once;
@@ -185,6 +185,18 @@ impl SocktopConnector {
                     .await
                     .ok_or_else(|| ConnectorError::invalid_response("Failed to get processes"))?;
                 Ok(AgentResponse::Processes(processes))
+            }
+            AgentRequest::ProcessMetrics { pid } => {
+                let process_metrics = request_process_metrics(stream, pid)
+                    .await
+                    .ok_or_else(|| ConnectorError::invalid_response("Failed to get process metrics"))?;
+                Ok(AgentResponse::ProcessMetrics(process_metrics))
+            }
+            AgentRequest::JournalEntries { pid } => {
+                let journal_entries = request_journal_entries(stream, pid)
+                    .await
+                    .ok_or_else(|| ConnectorError::invalid_response("Failed to get journal entries"))?;
+                Ok(AgentResponse::JournalEntries(journal_entries))
             }
         }
     }
@@ -433,6 +445,38 @@ async fn request_processes(ws: &mut WsStream) -> Option<ProcessesPayload> {
             }
         }
         Some(Ok(Message::Text(json))) => serde_json::from_str::<ProcessesPayload>(&json).ok(),
+        _ => None,
+    }
+}
+
+// Send a "get_process_metrics:{pid}" request and await a JSON ProcessMetricsResponse
+#[cfg(feature = "networking")]
+async fn request_process_metrics(ws: &mut WsStream, pid: u32) -> Option<ProcessMetricsResponse> {
+    let request = format!("get_process_metrics:{}", pid);
+    if ws.send(Message::Text(request)).await.is_err() {
+        return None;
+    }
+    match ws.next().await {
+        Some(Ok(Message::Binary(b))) => {
+            gunzip_to_string(&b).ok().and_then(|s| serde_json::from_str::<ProcessMetricsResponse>(&s).ok())
+        }
+        Some(Ok(Message::Text(json))) => serde_json::from_str::<ProcessMetricsResponse>(&json).ok(),
+        _ => None,
+    }
+}
+
+// Send a "get_journal_entries:{pid}" request and await a JSON JournalResponse
+#[cfg(feature = "networking")]
+async fn request_journal_entries(ws: &mut WsStream, pid: u32) -> Option<JournalResponse> {
+    let request = format!("get_journal_entries:{}", pid);
+    if ws.send(Message::Text(request)).await.is_err() {
+        return None;
+    }
+    match ws.next().await {
+        Some(Ok(Message::Binary(b))) => {
+            gunzip_to_string(&b).ok().and_then(|s| serde_json::from_str::<JournalResponse>(&s).ok())
+        }
+        Some(Ok(Message::Text(json))) => serde_json::from_str::<JournalResponse>(&json).ok(),
         _ => None,
     }
 }
@@ -804,6 +848,20 @@ impl SocktopConnector {
                         })?;
                     Ok(AgentResponse::Processes(processes))
                 }
+            }
+            AgentRequest::ProcessMetrics { pid: _ } => {
+                // Parse JSON response for process metrics
+                let process_metrics: ProcessMetricsResponse = serde_json::from_str(&response).map_err(|e| {
+                    ConnectorError::serialization_error(format!("Failed to parse process metrics: {e}"))
+                })?;
+                Ok(AgentResponse::ProcessMetrics(process_metrics))
+            }
+            AgentRequest::JournalEntries { pid: _ } => {
+                // Parse JSON response for journal entries
+                let journal_entries: JournalResponse = serde_json::from_str(&response).map_err(|e| {
+                    ConnectorError::serialization_error(format!("Failed to parse journal entries: {e}"))
+                })?;
+                Ok(AgentResponse::JournalEntries(journal_entries))
             }
         }
     }
