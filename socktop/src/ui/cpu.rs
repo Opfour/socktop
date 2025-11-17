@@ -42,8 +42,8 @@ pub fn per_core_content_area(area: Rect) -> Rect {
 /// Handles key events for per-core CPU bars.
 pub fn per_core_handle_key(scroll_offset: &mut usize, key: KeyEvent, page_size: usize) {
     match key.code {
-        KeyCode::Up => *scroll_offset = scroll_offset.saturating_sub(1),
-        KeyCode::Down => *scroll_offset = scroll_offset.saturating_add(1),
+        KeyCode::Left => *scroll_offset = scroll_offset.saturating_sub(1),
+        KeyCode::Right => *scroll_offset = scroll_offset.saturating_add(1),
         KeyCode::PageUp => {
             let step = page_size.max(1);
             *scroll_offset = scroll_offset.saturating_sub(step);

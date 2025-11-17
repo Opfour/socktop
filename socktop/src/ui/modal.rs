@@ -56,6 +56,7 @@ impl ModalManager {
                 ModalButton::Ok
             }
             Some(ModalType::About) => ModalButton::Ok,
+            Some(ModalType::Help) => ModalButton::Ok,
             Some(ModalType::Confirmation { .. }) => ModalButton::Confirm,
             Some(ModalType::Info { .. }) => ModalButton::Ok,
             None => ModalButton::Ok,
@@ -68,6 +69,7 @@ impl ModalManager {
                 ModalType::ConnectionError { .. } => ModalButton::Retry,
                 ModalType::ProcessDetails { .. } => ModalButton::Ok,
                 ModalType::About => ModalButton::Ok,
+                ModalType::Help => ModalButton::Ok,
                 ModalType::Confirmation { .. } => ModalButton::Confirm,
                 ModalType::Info { .. } => ModalButton::Ok,
             };
@@ -211,6 +213,10 @@ impl ModalManager {
                 self.pop_modal();
                 ModalAction::Dismiss
             }
+            (Some(ModalType::Help), ModalButton::Ok) => {
+                self.pop_modal();
+                ModalAction::Dismiss
+            }
             (Some(ModalType::Confirmation { .. }), ModalButton::Confirm) => ModalAction::Confirm,
             (Some(ModalType::Confirmation { .. }), ModalButton::Cancel) => ModalAction::Cancel,
             (Some(ModalType::Info { .. }), ModalButton::Ok) => {
@@ -261,7 +267,11 @@ impl ModalManager {
             }
             ModalType::About => {
                 // About modal uses medium size
-                self.centered_rect(60, 60, area)
+                self.centered_rect(90, 90, area)
+            }
+            ModalType::Help => {
+                // Help modal uses medium size
+                self.centered_rect(80, 80, area)
             }
             _ => {
                 // Other modals use smaller size
@@ -287,6 +297,7 @@ impl ModalManager {
                 self.render_process_details(f, modal_area, *pid, data)
             }
             ModalType::About => self.render_about(f, modal_area),
+            ModalType::Help => self.render_help(f, modal_area),
             ModalType::Confirmation {
                 title,
                 message,
@@ -415,7 +426,7 @@ impl ModalManager {
         let block = Block::default()
             .title(" About socktop ")
             .borders(Borders::ALL)
-            .style(Style::default().bg(Color::Black).fg(Color::Green));
+            .style(Style::default().bg(Color::Black).fg(Color::DarkGray));
         f.render_widget(block, area);
 
         // Calculate inner area manually to avoid any parent styling
@@ -423,7 +434,7 @@ impl ModalManager {
             x: area.x + 1,
             y: area.y + 1,
             width: area.width.saturating_sub(2),
-            height: area.height.saturating_sub(3), // Leave room for button at bottom
+            height: area.height.saturating_sub(2), // Leave room for button at bottom
         };
 
         // Render content area with explicit black background
@@ -438,7 +449,80 @@ impl ModalManager {
         // Button area
         let button_area = Rect {
             x: area.x + 1,
-            y: area.y + area.height.saturating_sub(3),
+            y: area.y + area.height.saturating_sub(2),
+            width: area.width.saturating_sub(2),
+            height: 1,
+        };
+
+        let ok_style = if self.active_button == ModalButton::Ok {
+            Style::default()
+                .bg(Color::Blue)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Blue).bg(Color::Black)
+        };
+
+        f.render_widget(
+            Paragraph::new("[ Enter ] Close")
+                .style(ok_style)
+                .alignment(Alignment::Center),
+            button_area,
+        );
+    }
+
+    fn render_help(&self, f: &mut Frame, area: Rect) {
+        let help_text = "\
+GLOBAL
+  q/Q/Esc ........ Quit  │  a/A ....... About  │  h/H ....... Help
+
+PROCESS LIST
+  ↑/↓ ............ Select/navigate processes
+  Enter .......... Open Process Details
+  x/X ............ Clear selection
+  Click header ... Sort by column (CPU/Mem)
+  Click row ...... Select process
+
+CPU PER-CORE
+  ←/→ ............ Scroll cores  │  PgUp/PgDn ... Page up/down
+  Home/End ....... Jump to first/last core
+
+PROCESS DETAILS MODAL
+  x/X ............ Close modal (all parent modals)
+  p/P ............ Navigate to parent process
+  j/k ............ Scroll threads ↓/↑ (1 line)
+  d/u ............ Scroll threads ↓/↑ (10 lines)
+  [ / ] .......... Scroll journal ↑/↓
+  Esc/Enter ...... Close modal";
+
+        // Render the border block
+        let block = Block::default()
+            .title(" Hotkey Help ")
+            .borders(Borders::ALL)
+            .style(Style::default().bg(Color::Black).fg(Color::DarkGray));
+        f.render_widget(block, area);
+
+        // Calculate inner area manually to avoid any parent styling
+        let inner_area = Rect {
+            x: area.x + 1,
+            y: area.y + 1,
+            width: area.width.saturating_sub(2),
+            height: area.height.saturating_sub(2), // Leave room for button at bottom
+        };
+
+        // Render content area with explicit black background
+        f.render_widget(
+            Paragraph::new(help_text)
+                .style(Style::default().fg(Color::Cyan).bg(Color::Black))
+                .alignment(Alignment::Left)
+                .wrap(Wrap { trim: false }),
+            inner_area,
+        );
+
+        // Button area
+        let button_area = Rect {
+            x: area.x + 1,
+            y: area.y + area.height.saturating_sub(2),
             width: area.width.saturating_sub(2),
             height: 1,
         };

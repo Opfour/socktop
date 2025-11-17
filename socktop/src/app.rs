@@ -29,7 +29,8 @@ use crate::ui::cpu::{
 };
 use crate::ui::modal::{ModalAction, ModalManager, ModalType};
 use crate::ui::processes::{
-    ProcSortBy, processes_handle_key_with_selection, processes_handle_mouse_with_selection,
+    ProcSortBy, ProcessKeyParams, processes_handle_key_with_selection,
+    processes_handle_mouse_with_selection,
 };
 use crate::ui::{
     disks::draw_disks, gpu::draw_gpu, header::draw_header, mem::draw_mem, net::draw_net_spark,
@@ -661,6 +662,11 @@ impl App {
                             self.modal_manager.push_modal(ModalType::About);
                         }
 
+                        // Show Help modal on 'h' or 'H'
+                        if matches!(k.code, KeyCode::Char('h') | KeyCode::Char('H')) {
+                            self.modal_manager.push_modal(ModalType::Help);
+                        }
+
                         // Per-core scroll via keys (Up/Down/PageUp/PageDown/Home/End)
                         let sz = terminal.size()?;
                         let area = Rect::new(0, 0, sz.width, sz.height);
@@ -681,22 +687,14 @@ impl App {
                         let content = per_core_content_area(top[1]);
 
                         // First try process selection (only handles arrows if a process is selected)
-                        let process_handled = if let Some(p_area) = self.last_procs_area {
-                            let page = p_area.height.saturating_sub(3).max(1) as usize; // borders (2) + header (1)
-                            let total_rows = self
-                                .last_metrics
-                                .as_ref()
-                                .map(|m| m.top_processes.len())
-                                .unwrap_or(0);
-                            processes_handle_key_with_selection(
-                                &mut self.procs_scroll_offset,
-                                &mut self.selected_process_pid,
-                                &mut self.selected_process_index,
-                                k,
-                                page,
-                                total_rows,
-                                self.last_metrics.as_ref(),
-                            )
+                        let process_handled = if self.last_procs_area.is_some() {
+                            processes_handle_key_with_selection(ProcessKeyParams {
+                                selected_process_pid: &mut self.selected_process_pid,
+                                selected_process_index: &mut self.selected_process_index,
+                                key: k,
+                                metrics: self.last_metrics.as_ref(),
+                                sort_by: self.procs_sort_by,
+                            })
                         } else {
                             false
                         };
@@ -708,6 +706,48 @@ impl App {
                                 k,
                                 content.height as usize,
                             );
+                        }
+
+                        // Auto-scroll to keep selected process visible
+                        if let (Some(selected_idx), Some(p_area)) =
+                            (self.selected_process_index, self.last_procs_area)
+                        {
+                            // Calculate viewport size (excluding borders and header)
+                            let viewport_rows = p_area.height.saturating_sub(3) as usize; // borders (2) + header (1)
+
+                            // Build sorted index list to find display position
+                            if let Some(m) = self.last_metrics.as_ref() {
+                                let mut idxs: Vec<usize> = (0..m.top_processes.len()).collect();
+                                match self.procs_sort_by {
+                                    ProcSortBy::CpuDesc => idxs.sort_by(|&a, &b| {
+                                        let aa = m.top_processes[a].cpu_usage;
+                                        let bb = m.top_processes[b].cpu_usage;
+                                        bb.partial_cmp(&aa).unwrap_or(std::cmp::Ordering::Equal)
+                                    }),
+                                    ProcSortBy::MemDesc => idxs.sort_by(|&a, &b| {
+                                        let aa = m.top_processes[a].mem_bytes;
+                                        let bb = m.top_processes[b].mem_bytes;
+                                        bb.cmp(&aa)
+                                    }),
+                                }
+
+                                // Find the display position of the selected process
+                                if let Some(display_pos) =
+                                    idxs.iter().position(|&idx| idx == selected_idx)
+                                {
+                                    // Adjust scroll offset to keep selection visible
+                                    if display_pos < self.procs_scroll_offset {
+                                        // Selection is above viewport, scroll up
+                                        self.procs_scroll_offset = display_pos;
+                                    } else if display_pos
+                                        >= self.procs_scroll_offset + viewport_rows
+                                    {
+                                        // Selection is below viewport, scroll down
+                                        self.procs_scroll_offset =
+                                            display_pos.saturating_sub(viewport_rows - 1);
+                                    }
+                                }
+                            }
                         }
 
                         // Check if process selection changed and clear details if so

@@ -39,6 +39,7 @@ pub enum ModalType {
         pid: u32,
     },
     About,
+    Help,
     #[allow(dead_code)]
     Confirmation {
         title: String,

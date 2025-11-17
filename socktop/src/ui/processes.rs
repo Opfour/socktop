@@ -254,6 +254,15 @@ fn fmt_cpu_pct(v: f32) -> String {
 }
 
 /// Handle keyboard scrolling (Up/Down/PageUp/PageDown/Home/End)
+/// Parameters for process key event handling
+pub struct ProcessKeyParams<'a> {
+    pub selected_process_pid: &'a mut Option<u32>,
+    pub selected_process_index: &'a mut Option<usize>,
+    pub key: crossterm::event::KeyEvent,
+    pub metrics: Option<&'a Metrics>,
+    pub sort_by: ProcSortBy,
+}
+
 /// LEGACY: Use processes_handle_key_with_selection for enhanced functionality
 #[allow(dead_code)]
 pub fn processes_handle_key(
@@ -264,24 +273,93 @@ pub fn processes_handle_key(
     crate::ui::cpu::per_core_handle_key(scroll_offset, key, page_size);
 }
 
-/// Enhanced keyboard handler that also manages process selection
-pub fn processes_handle_key_with_selection(
-    _scroll_offset: &mut usize,
-    selected_process_pid: &mut Option<u32>,
-    selected_process_index: &mut Option<usize>,
-    key: crossterm::event::KeyEvent,
-    _page_size: usize,
-    _total_rows: usize,
-    _metrics: Option<&Metrics>,
-) -> bool {
+pub fn processes_handle_key_with_selection(params: ProcessKeyParams) -> bool {
     use crossterm::event::KeyCode;
 
-    match key.code {
+    match params.key.code {
+        KeyCode::Up => {
+            // Build sorted index list to navigate through display order
+            if let Some(m) = params.metrics {
+                let mut idxs: Vec<usize> = (0..m.top_processes.len()).collect();
+                match params.sort_by {
+                    ProcSortBy::CpuDesc => idxs.sort_by(|&a, &b| {
+                        let aa = m.top_processes[a].cpu_usage;
+                        let bb = m.top_processes[b].cpu_usage;
+                        bb.partial_cmp(&aa).unwrap_or(Ordering::Equal)
+                    }),
+                    ProcSortBy::MemDesc => idxs.sort_by(|&a, &b| {
+                        let aa = m.top_processes[a].mem_bytes;
+                        let bb = m.top_processes[b].mem_bytes;
+                        bb.cmp(&aa)
+                    }),
+                }
+
+                if params.selected_process_index.is_none() || params.selected_process_pid.is_none()
+                {
+                    // No selection - select the first process in sorted order
+                    if !idxs.is_empty() {
+                        let first_idx = idxs[0];
+                        *params.selected_process_index = Some(first_idx);
+                        *params.selected_process_pid = Some(m.top_processes[first_idx].pid);
+                    }
+                } else if let Some(current_idx) = *params.selected_process_index {
+                    // Find current position in sorted list
+                    if let Some(pos) = idxs.iter().position(|&idx| idx == current_idx)
+                        && pos > 0
+                    {
+                        // Move up in sorted list
+                        let new_idx = idxs[pos - 1];
+                        *params.selected_process_index = Some(new_idx);
+                        *params.selected_process_pid = Some(m.top_processes[new_idx].pid);
+                    }
+                }
+            }
+            true // Handled
+        }
+        KeyCode::Down => {
+            // Build sorted index list to navigate through display order
+            if let Some(m) = params.metrics {
+                let mut idxs: Vec<usize> = (0..m.top_processes.len()).collect();
+                match params.sort_by {
+                    ProcSortBy::CpuDesc => idxs.sort_by(|&a, &b| {
+                        let aa = m.top_processes[a].cpu_usage;
+                        let bb = m.top_processes[b].cpu_usage;
+                        bb.partial_cmp(&aa).unwrap_or(Ordering::Equal)
+                    }),
+                    ProcSortBy::MemDesc => idxs.sort_by(|&a, &b| {
+                        let aa = m.top_processes[a].mem_bytes;
+                        let bb = m.top_processes[b].mem_bytes;
+                        bb.cmp(&aa)
+                    }),
+                }
+
+                if params.selected_process_index.is_none() || params.selected_process_pid.is_none()
+                {
+                    // No selection - select the first process in sorted order
+                    if !idxs.is_empty() {
+                        let first_idx = idxs[0];
+                        *params.selected_process_index = Some(first_idx);
+                        *params.selected_process_pid = Some(m.top_processes[first_idx].pid);
+                    }
+                } else if let Some(current_idx) = *params.selected_process_index {
+                    // Find current position in sorted list
+                    if let Some(pos) = idxs.iter().position(|&idx| idx == current_idx)
+                        && pos + 1 < idxs.len()
+                    {
+                        // Move down in sorted list
+                        let new_idx = idxs[pos + 1];
+                        *params.selected_process_index = Some(new_idx);
+                        *params.selected_process_pid = Some(m.top_processes[new_idx].pid);
+                    }
+                }
+            }
+            true // Handled
+        }
         KeyCode::Char('x') | KeyCode::Char('X') => {
             // Unselect any selected process
-            if selected_process_pid.is_some() || selected_process_index.is_some() {
-                *selected_process_pid = None;
-                *selected_process_index = None;
+            if params.selected_process_pid.is_some() || params.selected_process_index.is_some() {
+                *params.selected_process_pid = None;
+                *params.selected_process_index = None;
                 true // Handled
             } else {
                 false // No selection to clear
@@ -289,7 +367,7 @@ pub fn processes_handle_key_with_selection(
         }
         KeyCode::Enter => {
             // Signal that Enter was pressed with a selection
-            selected_process_pid.is_some() // Return true if we have a selection to handle
+            params.selected_process_pid.is_some() // Return true if we have a selection to handle
         }
         _ => {
             // No other keys handled - let scrollbar handle all navigation
