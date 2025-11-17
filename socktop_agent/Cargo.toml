@@ -1,6 +1,6 @@
 [package]
 name = "socktop_agent"
-version = "1.50.0"
+version = "1.50.1"
 authors = ["Jason Witty <jasonpwitty+socktop@proton.me>"]
 description = "Socktop agent daemon. Serves host metrics over WebSocket."
 edition = "2024"
@@ -23,7 +23,7 @@ tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
 gfxinfo = "0.1.2"
 once_cell = "1.19"
-axum-server = { version = "0.6", features = ["tls-rustls"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
 rustls = "0.23"
 rustls-pemfile = "2.1"
 rcgen = "0.13"
