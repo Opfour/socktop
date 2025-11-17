@@ -9,7 +9,7 @@ readme = "README.md"
 
 [dependencies]
 # socktop connector for agent communication
-socktop_connector = { path = "../socktop_connector" }
+socktop_connector = "1.50.0"
 
 tokio = { workspace = true }
 futures-util = { workspace = true }
