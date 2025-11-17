@@ -249,22 +249,52 @@ pub fn draw_cpu_avg_graph(
     };
 
     let title = if let Some(mm) = m {
-        format!(
-            "CPU avg (now: {:>5.1}% | avg: {:>5.1}%)",
-            mm.cpu_total, avg_cpu
-        )
+        format!("CPU (now: {:>5.1}% | avg: {:>5.1}%)", mm.cpu_total, avg_cpu)
     } else {
         "CPU avg".into()
     };
+
+    // Build the top-right info (CPU temp and polling intervals)
+    let top_right_info = if let Some(mm) = m {
+        mm.cpu_temp_c
+            .map(|t| {
+                let icon = if t < 50.0 {
+                    "😎"
+                } else if t < 85.0 {
+                    "⚠️"
+                } else {
+                    "🔥"
+                };
+                format!("CPU Temp: {t:.1}°C {icon}")
+            })
+            .unwrap_or_else(|| "CPU Temp: N/A".into())
+    } else {
+        String::new()
+    };
+
     let max_points = area.width.saturating_sub(2) as usize;
     let start = hist.len().saturating_sub(max_points);
     let data: Vec<u64> = hist.iter().skip(start).cloned().collect();
+
+    // Render the sparkline with title on left
     let spark = Sparkline::default()
         .block(Block::default().borders(Borders::ALL).title(title))
         .data(&data)
         .max(100)
         .style(Style::default().fg(Color::Cyan));
     f.render_widget(spark, area);
+
+    // Render the top-right info as text overlay in the top-right corner
+    if !top_right_info.is_empty() {
+        let info_area = Rect {
+            x: area.x + area.width.saturating_sub(top_right_info.len() as u16 + 2),
+            y: area.y,
+            width: top_right_info.len() as u16 + 1,
+            height: 1,
+        };
+        let info_line = Line::from(Span::raw(top_right_info));
+        f.render_widget(Paragraph::new(info_line), info_area);
+    }
 }
 
 /// Draws the per-core CPU bars with sparklines and trends.
